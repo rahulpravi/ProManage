@@ -1,62 +1,102 @@
-// template
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
 import { NativeTabs, Icon, Label } from "expo-router/unstable-native-tabs";
 import { BlurView } from "expo-blur";
-import { SymbolView } from "expo-symbols";
-import { Platform, StyleSheet, useColorScheme } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import React from "react";
+import { Ionicons } from "@expo/vector-icons";
+import COLORS from "@/constants/colors";
 
-import Colors from "@/constants/colors";
-
-//IMPORTANT: iOS 26 Exists, feel free to use NativeTabs for native tabs with liquid glass support.
 function NativeTabLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
+        <Label>Dashboard</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="stock">
+        <Icon sf={{ default: "shippingbox", selected: "shippingbox.fill" }} />
+        <Label>Stock</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="production">
+        <Icon sf={{ default: "gearshape", selected: "gearshape.fill" }} />
+        <Label>Production</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="qc">
+        <Icon sf={{ default: "checkmark.shield", selected: "checkmark.shield.fill" }} />
+        <Label>QC</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="sales">
+        <Icon sf={{ default: "cart", selected: "cart.fill" }} />
+        <Label>Sales</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
 
 function ClassicTabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const isIOS = Platform.OS === "ios";
+  const isWeb = Platform.OS === "web";
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.light.tint,
-        tabBarInactiveTintColor: Colors.light.tabIconDefault,
-        headerShown: true,
+        headerShown: false,
+        tabBarActiveTintColor: COLORS.primaryLight,
+        tabBarInactiveTintColor: COLORS.tabIconDefault,
         tabBarStyle: {
           position: "absolute",
-          backgroundColor: Platform.select({
-            ios: "transparent",
-            android: isDark ? "#000" : "#fff",
-          }),
-          borderTopWidth: 0,
+          backgroundColor: isIOS ? "transparent" : COLORS.surface,
+          borderTopWidth: isWeb ? 1 : 0,
+          borderTopColor: COLORS.cardBorder,
           elevation: 0,
+          ...(isWeb ? { height: 84 } : {}),
         },
         tabBarBackground: () =>
-          Platform.OS === "ios" ? (
-            <BlurView
-              intensity={100}
-              tint={isDark ? "dark" : "light"}
-              style={StyleSheet.absoluteFill}
-            />
+          isIOS ? (
+            <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFill} />
+          ) : isWeb ? (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: COLORS.surface }]} />
           ) : null,
+        tabBarLabelStyle: {
+          fontFamily: "Inter_500Medium",
+          fontSize: 10,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
-          tabBarIcon: ({ color }) => (
-            <SymbolView name="house" tintColor={color} size={24} />
-          ),
+          title: "Dashboard",
+          tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="stock"
+        options={{
+          title: "Stock",
+          tabBarIcon: ({ color, size }) => <Ionicons name="cube" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="production"
+        options={{
+          title: "Production",
+          tabBarIcon: ({ color, size }) => <Ionicons name="settings" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="qc"
+        options={{
+          title: "QC",
+          tabBarIcon: ({ color, size }) => <Ionicons name="shield-checkmark" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="sales"
+        options={{
+          title: "Sales",
+          tabBarIcon: ({ color, size }) => <Ionicons name="cart" color={color} size={size} />,
         }}
       />
     </Tabs>
