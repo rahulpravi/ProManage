@@ -47,7 +47,7 @@ function BarChart({ data, labels }: { data: number[]; labels: string[] }) {
               x={x}
               y={y}
               width={barWidth}
-              height={barH}
+              height={Math.max(barH, 0)}
               fill={COLORS.machineColors[i % COLORS.machineColors.length]}
               rx={4}
             />
@@ -80,6 +80,23 @@ function BarChart({ data, labels }: { data: number[]; labels: string[] }) {
   );
 }
 
+function useCurrentTime() {
+  const [time, setTime] = useState(() => {
+    const now = new Date();
+    return now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setTime(now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return time;
+}
+
 type DashStats = Awaited<ReturnType<typeof getDashboardStats>>;
 
 export default function DashboardScreen() {
@@ -89,6 +106,7 @@ export default function DashboardScreen() {
   const [filter, setFilter] = useState<FilterOption>(FILTERS[0]);
   const [chartData, setChartData] = useState<number[]>([]);
   const [chartLabels, setChartLabels] = useState<string[]>([]);
+  const currentTime = useCurrentTime();
 
   const load = useCallback(async () => {
     const s = await getDashboardStats();
@@ -114,8 +132,6 @@ export default function DashboardScreen() {
       });
     } else {
       for (let i = 3; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i * 7);
         const key = `Wk${4 - i}`;
         buckets[key] = 0;
       }
@@ -137,6 +153,8 @@ export default function DashboardScreen() {
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
+  const today = new Date().toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+
   if (isLoading || !stats) {
     return (
       <View style={[styles.container, { paddingTop: topPad + 16 }]}>
@@ -155,11 +173,17 @@ export default function DashboardScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.company}>ProManage</Text>
-          <Text style={styles.subtitle}>Production Dashboard</Text>
+          <Text style={styles.subtitle}>{today}</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={refreshAll}>
-          <Ionicons name="refresh" size={20} color={COLORS.primaryLight} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <View style={styles.clockBadge}>
+            <Ionicons name="time-outline" size={12} color={COLORS.primaryLight} />
+            <Text style={styles.clockText}>{currentTime}</Text>
+          </View>
+          <TouchableOpacity style={styles.refreshBtn} onPress={refreshAll}>
+            <Ionicons name="refresh" size={20} color={COLORS.primaryLight} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -271,6 +295,28 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 2,
   },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  clockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  clockText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.primaryLight,
+    fontVariant: ["tabular-nums"],
+  },
   refreshBtn: {
     width: 40,
     height: 40,
@@ -278,6 +324,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
   scrollContent: {
     paddingHorizontal: 20,

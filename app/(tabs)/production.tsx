@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Modal,
   Alert,
   Platform,
   FlatList,
@@ -39,93 +38,64 @@ function Dropdown<T extends { id: string }>({
   const [open, setOpen] = useState(false);
   return (
     <View style={{ marginBottom: 16 }}>
-      <Text style={dropdownStyles.label}>{label}</Text>
-      <TouchableOpacity style={dropdownStyles.trigger} onPress={() => setOpen(!open)}>
-        <Text style={selected ? dropdownStyles.selected : dropdownStyles.placeholder}>
+      <Text style={ddStyles.label}>{label}</Text>
+      <TouchableOpacity style={ddStyles.trigger} onPress={() => setOpen(!open)}>
+        <Text style={selected ? ddStyles.selected : ddStyles.placeholder}>
           {selected ? getLabel(selected) : `Select ${label}`}
         </Text>
         <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={COLORS.textSecondary} />
       </TouchableOpacity>
       {open && (
-        <View style={dropdownStyles.list}>
-          {items.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[dropdownStyles.option, selected?.id === item.id && dropdownStyles.optionActive]}
-              onPress={() => {
-                onSelect(item);
-                setOpen(false);
-              }}
-            >
-              <Text style={[dropdownStyles.optionText, selected?.id === item.id && dropdownStyles.optionTextActive]}>
-                {getLabel(item)}
-              </Text>
-              {selected?.id === item.id && <Ionicons name="checkmark" size={16} color={COLORS.primary} />}
-            </TouchableOpacity>
-          ))}
+        <View style={ddStyles.list}>
+          {items.length === 0 ? (
+            <View style={ddStyles.emptyOption}>
+              <Text style={ddStyles.emptyOptionText}>No items available</Text>
+            </View>
+          ) : (
+            items.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={[ddStyles.option, selected?.id === item.id && ddStyles.optionActive]}
+                onPress={() => { onSelect(item); setOpen(false); }}
+              >
+                <Text style={[ddStyles.optionText, selected?.id === item.id && ddStyles.optionTextActive]}>
+                  {getLabel(item)}
+                </Text>
+                {selected?.id === item.id && <Ionicons name="checkmark" size={16} color={COLORS.primary} />}
+              </TouchableOpacity>
+            ))
+          )}
         </View>
       )}
     </View>
   );
 }
 
-const dropdownStyles = StyleSheet.create({
+const ddStyles = StyleSheet.create({
   label: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-    color: COLORS.textSecondary,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textSecondary,
+    marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5,
   },
   trigger: {
-    backgroundColor: COLORS.surfaceLight,
-    borderRadius: 12,
-    padding: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    backgroundColor: COLORS.surfaceLight, borderRadius: 12, padding: 14,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    borderWidth: 1, borderColor: COLORS.cardBorder,
   },
-  selected: {
-    fontSize: 15,
-    fontFamily: "Inter_500Medium",
-    color: COLORS.text,
-  },
-  placeholder: {
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-    color: COLORS.textMuted,
-  },
+  selected: { fontSize: 15, fontFamily: "Inter_500Medium", color: COLORS.text },
+  placeholder: { fontSize: 15, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
   list: {
-    backgroundColor: COLORS.surfaceLight,
-    borderRadius: 12,
-    marginTop: 4,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    overflow: "hidden",
+    backgroundColor: COLORS.surfaceLight, borderRadius: 12, marginTop: 4,
+    borderWidth: 1, borderColor: COLORS.cardBorder, overflow: "hidden",
   },
   option: {
-    padding: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.cardBorder,
+    padding: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
   },
-  optionActive: {
-    backgroundColor: COLORS.primary + "22",
-  },
-  optionText: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    color: COLORS.text,
-  },
-  optionTextActive: {
-    fontFamily: "Inter_600SemiBold",
-    color: COLORS.primaryLight,
-  },
+  optionActive: { backgroundColor: COLORS.primary + "22" },
+  optionText: { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text },
+  optionTextActive: { fontFamily: "Inter_600SemiBold", color: COLORS.primaryLight },
+  emptyOption: { padding: 14, alignItems: "center" },
+  emptyOptionText: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
 });
 
 export default function ProductionScreen() {
@@ -138,6 +108,7 @@ export default function ProductionScreen() {
   const [reqMachine, setReqMachine] = useState<Machine | null>(null);
   const [reqPart, setReqPart] = useState<StockItem | null>(null);
   const [reqQty, setReqQty] = useState("");
+  const [reqSerials, setReqSerials] = useState<string[]>([""]);
   const [reqSubmitting, setReqSubmitting] = useState(false);
 
   const [compEmployee, setCompEmployee] = useState<Employee | null>(null);
@@ -154,7 +125,13 @@ export default function ProductionScreen() {
     ? stock.filter((s) => s.machineCategory === reqMachine.category && s.quantity > 0)
     : stock.filter((s) => s.quantity > 0);
 
-  const handleQtyChange = (val: string) => {
+  const handleReqQtyChange = (val: string) => {
+    setReqQty(val);
+    const n = parseInt(val) || 0;
+    setReqSerials(Array.from({ length: Math.max(n, 1) }, (_, i) => reqSerials[i] || ""));
+  };
+
+  const handleCompQtyChange = (val: string) => {
     setCompQty(val);
     const n = parseInt(val) || 0;
     setSerialNumbers(Array.from({ length: Math.max(n, 1) }, (_, i) => serialNumbers[i] || ""));
@@ -174,9 +151,14 @@ export default function ProductionScreen() {
       Alert.alert("Insufficient Stock", `Only ${reqPart.quantity} units available`);
       return;
     }
+    const snFilled = reqSerials.slice(0, qty).filter((s) => s.trim() !== "");
+    if (snFilled.length < qty) {
+      Alert.alert("Error", "Please fill all serial numbers");
+      return;
+    }
     setReqSubmitting(true);
     try {
-      const result = await addMaterialRequest(reqEmployee, reqMachine, reqPart, qty);
+      const result = await addMaterialRequest(reqEmployee, reqMachine, reqPart, qty, snFilled);
       if (!result) {
         Alert.alert("Error", "Insufficient stock");
         return;
@@ -187,6 +169,7 @@ export default function ProductionScreen() {
       setReqMachine(null);
       setReqPart(null);
       setReqQty("");
+      setReqSerials([""]);
       Alert.alert("Success", "Material request submitted");
     } catch {
       Alert.alert("Error", "Failed to submit request");
@@ -229,27 +212,44 @@ export default function ProductionScreen() {
 
   const handleExport = async () => {
     if (activeTab === "request") {
-      const headers = ["Employee", "Machine", "Part", "Quantity", "Date"];
+      const headers = ["Employee", "Machine", "Part", "Quantity", "Serial Numbers", "Date"];
       const rows = materialRequests.map((r) => [
-        r.employeeName,
-        r.machineName,
-        r.partName,
-        String(r.quantity),
-        formatDate(r.requestedAt),
+        r.employeeName, r.machineName, r.partName,
+        String(r.quantity), (r.serialNumbers || []).join(", "), formatDate(r.requestedAt),
       ]);
       await exportAndShareCSV("material_requests.csv", headers, rows);
     } else {
       const headers = ["Employee", "Machine", "Quantity", "Serial Numbers", "Date"];
       const rows = productionLogs.map((p) => [
-        p.employeeName,
-        p.machineName,
-        String(p.quantity),
-        p.serialNumbers.join(", "),
-        formatDate(p.completedAt),
+        p.employeeName, p.machineName, String(p.quantity),
+        p.serialNumbers.join(", "), formatDate(p.completedAt),
       ]);
       await exportAndShareCSV("production_logs.csv", headers, rows);
     }
   };
+
+  const SerialInputs = ({
+    count, serials, onChange, accentColor,
+  }: { count: number; serials: string[]; onChange: (idx: number, val: string) => void; accentColor: string }) => (
+    <>
+      <Text style={ddStyles.label}>Serial Numbers</Text>
+      {Array.from({ length: count }).map((_, idx) => (
+        <View key={idx} style={styles.serialRow}>
+          <View style={[styles.serialIndex, { backgroundColor: accentColor + "22" }]}>
+            <Text style={[styles.serialIndexText, { color: accentColor }]}>{idx + 1}</Text>
+          </View>
+          <TextInput
+            style={[styles.input, { flex: 1, marginBottom: 0 }]}
+            placeholder={`Serial #${idx + 1}`}
+            placeholderTextColor={COLORS.textMuted}
+            value={serials[idx] || ""}
+            onChangeText={(val) => onChange(idx, val)}
+          />
+        </View>
+      ))}
+      <View style={{ height: 16 }} />
+    </>
+  );
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
@@ -263,7 +263,7 @@ export default function ProductionScreen() {
             <Ionicons name="share-outline" size={20} color={COLORS.primaryLight} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} onPress={() => setShowHistory(!showHistory)}>
-            <Ionicons name="list" size={20} color={COLORS.primaryLight} />
+            <Ionicons name={showHistory ? "create-outline" : "list"} size={20} color={COLORS.primaryLight} />
           </TouchableOpacity>
         </View>
       </View>
@@ -273,7 +273,7 @@ export default function ProductionScreen() {
           <TouchableOpacity
             key={t}
             style={[styles.tabBtn, activeTab === t && styles.tabBtnActive]}
-            onPress={() => setActiveTab(t)}
+            onPress={() => { setActiveTab(t); setShowHistory(false); }}
           >
             <Ionicons
               name={t === "request" ? "cart-outline" : "checkmark-circle-outline"}
@@ -306,9 +306,14 @@ export default function ProductionScreen() {
                 <View style={[styles.historyIcon, { backgroundColor: COLORS.primary + "22" }]}>
                   <Ionicons name="cart-outline" size={18} color={COLORS.primary} />
                 </View>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.historyName}>{item.partName}</Text>
                   <Text style={styles.historyMeta}>{item.employeeName} • {item.machineName}</Text>
+                  {(item.serialNumbers || []).length > 0 && (
+                    <Text style={styles.historySerials} numberOfLines={1}>
+                      SN: {(item.serialNumbers || []).join(", ")}
+                    </Text>
+                  )}
                   <Text style={styles.historyDate}>{formatDate(item.requestedAt)}</Text>
                 </View>
               </View>
@@ -338,9 +343,12 @@ export default function ProductionScreen() {
                 <View style={[styles.historyIcon, { backgroundColor: COLORS.secondary + "22" }]}>
                   <Ionicons name="settings-outline" size={18} color={COLORS.secondary} />
                 </View>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.historyName}>{item.machineName}</Text>
-                  <Text style={styles.historyMeta}>{item.employeeName} • {item.machineName}</Text>
+                  <Text style={styles.historyMeta}>{item.employeeName}</Text>
+                  <Text style={styles.historySerials} numberOfLines={1}>
+                    SN: {item.serialNumbers.join(", ")}
+                  </Text>
                   <Text style={styles.historyDate}>{formatDate(item.completedAt)}</Text>
                 </View>
               </View>
@@ -381,19 +389,29 @@ export default function ProductionScreen() {
                 onSelect={setReqPart}
                 getLabel={(p) => `${p.partName} (${p.quantity} available)`}
               />
-              <Text style={dropdownStyles.label}>Quantity</Text>
+              <Text style={ddStyles.label}>Quantity</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Enter quantity"
                 placeholderTextColor={COLORS.textMuted}
                 value={reqQty}
-                onChangeText={setReqQty}
+                onChangeText={handleReqQtyChange}
                 keyboardType="number-pad"
               />
+              {parseInt(reqQty) > 0 && (
+                <SerialInputs
+                  count={parseInt(reqQty)}
+                  serials={reqSerials}
+                  onChange={(idx, val) => {
+                    const updated = [...reqSerials];
+                    updated[idx] = val;
+                    setReqSerials(updated);
+                  }}
+                  accentColor={COLORS.primary}
+                />
+              )}
               <TouchableOpacity style={styles.submitBtn} onPress={handleMaterialRequest} disabled={reqSubmitting}>
-                {reqSubmitting ? (
-                  <ActivityIndicator color={COLORS.white} />
-                ) : (
+                {reqSubmitting ? <ActivityIndicator color={COLORS.white} /> : (
                   <Text style={styles.submitText}>Submit Request</Text>
                 )}
               </TouchableOpacity>
@@ -414,43 +432,29 @@ export default function ProductionScreen() {
                 onSelect={setCompMachine}
                 getLabel={(m) => m.name}
               />
-              <Text style={dropdownStyles.label}>Quantity</Text>
+              <Text style={ddStyles.label}>Quantity</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Enter quantity"
                 placeholderTextColor={COLORS.textMuted}
                 value={compQty}
-                onChangeText={handleQtyChange}
+                onChangeText={handleCompQtyChange}
                 keyboardType="number-pad"
               />
               {parseInt(compQty) > 0 && (
-                <>
-                  <Text style={dropdownStyles.label}>Serial Numbers</Text>
-                  {serialNumbers.slice(0, parseInt(compQty) || 0).map((sn, idx) => (
-                    <View key={idx} style={styles.serialRow}>
-                      <View style={styles.serialIndex}>
-                        <Text style={styles.serialIndexText}>{idx + 1}</Text>
-                      </View>
-                      <TextInput
-                        style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                        placeholder={`Serial #${idx + 1}`}
-                        placeholderTextColor={COLORS.textMuted}
-                        value={sn}
-                        onChangeText={(val) => {
-                          const updated = [...serialNumbers];
-                          updated[idx] = val;
-                          setSerialNumbers(updated);
-                        }}
-                      />
-                    </View>
-                  ))}
-                  <View style={{ height: 16 }} />
-                </>
+                <SerialInputs
+                  count={parseInt(compQty)}
+                  serials={serialNumbers}
+                  onChange={(idx, val) => {
+                    const updated = [...serialNumbers];
+                    updated[idx] = val;
+                    setSerialNumbers(updated);
+                  }}
+                  accentColor={COLORS.secondary}
+                />
               )}
-              <TouchableOpacity style={styles.submitBtn} onPress={handleProductionComplete} disabled={compSubmitting}>
-                {compSubmitting ? (
-                  <ActivityIndicator color={COLORS.white} />
-                ) : (
+              <TouchableOpacity style={[styles.submitBtn, { backgroundColor: COLORS.secondary }]} onPress={handleProductionComplete} disabled={compSubmitting}>
+                {compSubmitting ? <ActivityIndicator color={COLORS.white} /> : (
                   <Text style={styles.submitText}>Mark Production Complete</Text>
                 )}
               </TouchableOpacity>
@@ -464,188 +468,64 @@ export default function ProductionScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
+  container: { flex: 1, backgroundColor: COLORS.background },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    paddingTop: 8,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 20, paddingBottom: 12, paddingTop: 8,
   },
-  title: {
-    fontSize: 24,
-    fontFamily: "Inter_700Bold",
-    color: COLORS.text,
-  },
-  subtitle: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  headerActions: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-  },
+  title: { fontSize: 24, fontFamily: "Inter_700Bold", color: COLORS.text },
+  subtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 2 },
+  headerActions: { flexDirection: "row", gap: 10, alignItems: "center" },
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: COLORS.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.surface,
+    alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.cardBorder,
   },
   tabBar: {
-    flexDirection: "row",
-    marginHorizontal: 20,
-    marginBottom: 16,
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    flexDirection: "row", marginHorizontal: 20, marginBottom: 16,
+    backgroundColor: COLORS.surface, borderRadius: 12, padding: 4,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
   },
   tabBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 9,
-    borderRadius: 9,
-    gap: 6,
+    flex: 1, flexDirection: "row", alignItems: "center",
+    justifyContent: "center", paddingVertical: 9, borderRadius: 9, gap: 6,
   },
-  tabBtnActive: {
-    backgroundColor: COLORS.primary + "22",
-  },
-  tabText: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-    color: COLORS.textSecondary,
-  },
-  tabTextActive: {
-    color: COLORS.primaryLight,
-    fontFamily: "Inter_600SemiBold",
-  },
-  formContent: {
-    paddingHorizontal: 20,
-    paddingTop: 4,
-  },
+  tabBtnActive: { backgroundColor: COLORS.primary + "22" },
+  tabText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
+  tabTextActive: { color: COLORS.primaryLight, fontFamily: "Inter_600SemiBold" },
+  formContent: { paddingHorizontal: 20, paddingTop: 4 },
   input: {
-    backgroundColor: COLORS.surfaceLight,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-    color: COLORS.text,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    backgroundColor: COLORS.surfaceLight, borderRadius: 12, padding: 14,
+    fontSize: 15, fontFamily: "Inter_400Regular", color: COLORS.text,
+    marginBottom: 16, borderWidth: 1, borderColor: COLORS.cardBorder,
   },
-  serialRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 10,
-  },
+  serialRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   serialIndex: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: COLORS.primary + "22",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center",
   },
-  serialIndexText: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    color: COLORS.primaryLight,
-  },
+  serialIndexText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   submitBtn: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 14,
-    padding: 16,
-    alignItems: "center",
-    marginTop: 4,
+    backgroundColor: COLORS.primary, borderRadius: 14,
+    padding: 16, alignItems: "center", marginTop: 4,
   },
-  submitText: {
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-    color: COLORS.white,
-  },
+  submitText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.white },
   listContent: {
     paddingHorizontal: 20,
     paddingBottom: Platform.OS === "web" ? 34 : 100,
   },
   historyCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    backgroundColor: COLORS.surface, borderRadius: 14, padding: 14,
+    marginBottom: 10, flexDirection: "row", justifyContent: "space-between",
+    alignItems: "center", borderWidth: 1, borderColor: COLORS.cardBorder,
   },
-  historyLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-  },
-  historyIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  historyName: {
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-    color: COLORS.text,
-  },
-  historyMeta: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  historyDate: {
-    fontSize: 10,
-    fontFamily: "Inter_400Regular",
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  historyQty: {
-    alignItems: "center",
-  },
-  historyQtyText: {
-    fontSize: 22,
-    fontFamily: "Inter_700Bold",
-    color: COLORS.text,
-  },
-  historyQtyLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_400Regular",
-    color: COLORS.textMuted,
-  },
-  empty: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingTop: 60,
-    gap: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    color: COLORS.textSecondary,
-  },
+  historyLeft: { flexDirection: "row", alignItems: "flex-start", gap: 12, flex: 1 },
+  historyIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  historyName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  historyMeta: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 2 },
+  historySerials: { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },
+  historyDate: { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },
+  historyQty: { alignItems: "center" },
+  historyQtyText: { fontSize: 22, fontFamily: "Inter_700Bold", color: COLORS.text },
+  historyQtyLabel: { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  empty: { alignItems: "center", justifyContent: "center", paddingTop: 60, gap: 8 },
+  emptyText: { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.textSecondary },
 });

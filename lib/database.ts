@@ -37,6 +37,7 @@ export type MaterialRequest = {
   partId: string;
   partName: string;
   quantity: number;
+  serialNumbers: string[];
   requestedAt: string;
 };
 
@@ -109,6 +110,14 @@ export const DEFAULT_MACHINES: Machine[] = [
   { id: "4", name: "4 Way", category: "4 Way" },
   { id: "5", name: "48 Way", category: "48 Way" },
 ];
+
+export const MACHINE_PARTS: Record<string, string[]> = {
+  "Shord":  ["Part 1",  "Part 2",  "Part 3"],
+  "Sord":   ["Part 4",  "Part 5",  "Part 6"],
+  "OBC":    ["Part 7",  "Part 8",  "Part 9"],
+  "4 Way":  ["Part 10", "Part 11", "Part 12"],
+  "48 Way": ["Part 13", "Part 14", "Part 15"],
+};
 
 export const DEFAULT_EMPLOYEES: Employee[] = [
   { id: "e1", name: "Rahul", code: "R" },
@@ -193,7 +202,8 @@ export async function addMaterialRequest(
   employee: Employee,
   machine: Machine,
   part: StockItem,
-  quantity: number
+  quantity: number,
+  serialNumbers: string[]
 ): Promise<MaterialRequest | null> {
   const deducted = await deductStock(part.partName, part.machineCategory, quantity);
   if (!deducted) return null;
@@ -207,6 +217,7 @@ export async function addMaterialRequest(
     partId: part.id,
     partName: part.partName,
     quantity,
+    serialNumbers,
     requestedAt: new Date().toISOString(),
   };
   requests.push(req);
@@ -276,6 +287,43 @@ export async function addQCLog(
   return qcLog;
 }
 
+export async function addQCLogDirect(
+  employee: Employee,
+  productionLog: ProductionLog,
+  selectedSerials: string[]
+): Promise<QCLog> {
+  const logs = await getItem<QCLog>(KEYS.QC_LOGS);
+  const qcSerials = selectedSerials.map((sn) => `${sn}-${employee.code}`);
+  const qcLog: QCLog = {
+    id: genId(),
+    productionLogId: productionLog.id,
+    employeeId: employee.id,
+    employeeName: employee.name,
+    productName: productionLog.machineName,
+    machineName: productionLog.machineName,
+    quantity: selectedSerials.length,
+    serialNumbers: qcSerials,
+    checkedAt: new Date().toISOString(),
+    status: "passed",
+  };
+  logs.push(qcLog);
+  await setItem(KEYS.QC_LOGS, logs);
+
+  const prodLogs = await getItem<ProductionLog>(KEYS.PRODUCTION_LOGS);
+  const idx = prodLogs.findIndex((p) => p.id === productionLog.id);
+  if (idx >= 0) {
+    const remaining = prodLogs[idx].serialNumbers.filter((sn) => !selectedSerials.includes(sn));
+    if (remaining.length === 0) {
+      prodLogs[idx].status = "qc_done";
+    } else {
+      prodLogs[idx].serialNumbers = remaining;
+      prodLogs[idx].quantity = remaining.length;
+    }
+    await setItem(KEYS.PRODUCTION_LOGS, prodLogs);
+  }
+  return qcLog;
+}
+
 export async function getSaleLogs(): Promise<SaleLog[]> {
   return getItem<SaleLog>(KEYS.SALE_LOGS);
 }
@@ -300,6 +348,40 @@ export async function markAsSold(qcLog: QCLog): Promise<SaleLog> {
     qcLogs[idx].status = "failed";
     await setItem(KEYS.QC_LOGS, qcLogs);
   }
+  return sale;
+}
+
+export async function markPartialSale(
+  machineName: string,
+  selectedSerials: string[],
+  groupQCLogs: QCLog[]
+): Promise<SaleLog> {
+  const saleLogs = await getItem<SaleLog>(KEYS.SALE_LOGS);
+  const sale: SaleLog = {
+    id: genId(),
+    qcLogId: groupQCLogs.map((q) => q.id).join(","),
+    productName: machineName,
+    machineName,
+    quantity: selectedSerials.length,
+    serialNumbers: selectedSerials,
+    soldAt: new Date().toISOString(),
+  };
+  saleLogs.push(sale);
+  await setItem(KEYS.SALE_LOGS, saleLogs);
+
+  const allQCLogs = await getItem<QCLog>(KEYS.QC_LOGS);
+  for (const groupLog of groupQCLogs) {
+    const idx = allQCLogs.findIndex((q) => q.id === groupLog.id);
+    if (idx < 0) continue;
+    const remaining = allQCLogs[idx].serialNumbers.filter((sn) => !selectedSerials.includes(sn));
+    if (remaining.length === 0) {
+      allQCLogs[idx].status = "failed";
+    } else {
+      allQCLogs[idx].serialNumbers = remaining;
+      allQCLogs[idx].quantity = remaining.length;
+    }
+  }
+  await setItem(KEYS.QC_LOGS, allQCLogs);
   return sale;
 }
 
