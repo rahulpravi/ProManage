@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Dimensions, Modal, TextInput, Switch, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Dimensions, Modal, TextInput, Switch, Alert, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Rect, Line, Text as SvgText, G, Polyline } from "react-native-svg";
@@ -11,6 +11,12 @@ import type { ProductionLog } from "@/lib/database";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CHART_WIDTH = SCREEN_WIDTH - 48;
 const CHART_HEIGHT = 160;
+
+// Local colors for new UI elements
+const UI_COLORS = {
+  success: '#10B981',
+  successBg: 'rgba(16, 185, 129, 0.15)',
+};
 
 type FilterOption = { label: string; weeks: number };
 const FILTERS: FilterOption[] = [
@@ -71,16 +77,6 @@ function LineChart() {
       <Line x1="30" y1={BAR_AREA_HEIGHT + 10} x2={CHART_WIDTH} y2={BAR_AREA_HEIGHT + 10} stroke={COLORS.cardBorder} strokeWidth="1" />
       <Polyline points={getPoints(prodData)} fill="none" stroke={COLORS.primary} strokeWidth="3" />
       <Polyline points={getPoints(saleData)} fill="none" stroke={COLORS.warning} strokeWidth="3" />
-      <View style={{ position: 'absolute', top: 0, right: 10, flexDirection: 'row', gap: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <View style={{ width: 10, height: 10, backgroundColor: COLORS.primary, borderRadius: 5 }} />
-          <Text style={{ fontSize: 10, color: COLORS.text }}>Prod</Text>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <View style={{ width: 10, height: 10, backgroundColor: COLORS.warning, borderRadius: 5 }} />
-          <Text style={{ fontSize: 10, color: COLORS.text }}>Sale</Text>
-        </View>
-      </View>
     </Svg>
   );
 }
@@ -105,10 +101,14 @@ export default function DashboardScreen() {
   const [chartLabels, setChartLabels] = useState<string[]>([]);
   const currentTime = useCurrentTime();
   
-  const [expandedMachine, setExpandedMachine] = useState<string | null>(null);
+  // Settings & Modal States
   const [showSettings, setShowSettings] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [password, setPassword] = useState("");
+  
+  // Stock Bottom Sheet States
+  const [stockModalVisible, setStockModalVisible] = useState(false);
+  const [selectedMachineInfo, setSelectedMachineInfo] = useState<any>(null);
 
   const load = useCallback(async () => {
     const s = await getDashboardStats();
@@ -130,6 +130,15 @@ export default function DashboardScreen() {
     } else {
       Alert.alert("Error", "Incorrect Password");
     }
+  };
+
+  const openStockDetails = (machineData: any, stockCount: number) => {
+    setSelectedMachineInfo({
+      name: machineData.name,
+      totalStock: stockCount,
+      parts: machineData.partDetails || [{ id: '1', name: 'Main Part (Part 1)', stock: stockCount }]
+    });
+    setStockModalVisible(true);
   };
 
   function buildChartData(logs: ProductionLog[], weeks: number) {
@@ -156,6 +165,7 @@ export default function DashboardScreen() {
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   const today = new Date().toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  const currentMonth = new Date().toLocaleDateString([], { month: "long", year: "numeric" });
 
   if (isLoading || !stats) {
     return (
@@ -189,6 +199,7 @@ export default function DashboardScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         
+        {/* --- SUMMARY CARDS --- */}
         <View style={styles.summaryRow}>
           {[
             { label: "Part 1 Stock", value: totalStock, icon: "cube", color: "#8B5CF6" },
@@ -206,9 +217,13 @@ export default function DashboardScreen() {
           ))}
         </View>
 
+        {/* --- WEEKLY PRODUCTION CHART --- */}
         <View style={styles.chartCard}>
           <View style={styles.chartHeader}>
-            <Text style={styles.sectionTitle}>Weekly Production Trend</Text>
+            <View>
+              <Text style={styles.sectionTitle}>Weekly Production</Text>
+              <Text style={styles.sectionSubtitle}>Last 4 weeks • by machine</Text>
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
               {FILTERS.map((f) => (
                 <TouchableOpacity key={f.label} style={[styles.filterBtn, filter.label === f.label && styles.filterBtnActive]} onPress={() => setFilter(f)}>
@@ -217,60 +232,75 @@ export default function DashboardScreen() {
               ))}
             </ScrollView>
           </View>
+          
+          {/* Machine Legends */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.legendContainer}>
+            {stats.machineStats.map((ms, idx) => (
+              <View key={ms.machine.id} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: COLORS.machineColors[idx] || COLORS.primary }]} />
+                <Text style={styles.legendText}>{ms.machine.name}</Text>
+              </View>
+            ))}
+          </ScrollView>
+
           {chartData.length > 0 ? <BarChart data={chartData} labels={chartLabels} /> : (
             <View style={styles.emptyChart}><Text style={styles.emptyText}>No data</Text></View>
           )}
         </View>
 
+        {/* --- MONTHLY OVERVIEW CHART --- */}
         <View style={styles.chartCard}>
-          <Text style={styles.sectionTitle}>Monthly Trend (Prod vs Sale)</Text>
+          <View style={{marginBottom: 12}}>
+            <Text style={styles.sectionTitle}>Monthly Overview</Text>
+            <Text style={styles.sectionSubtitle}>{currentMonth} • Day by day</Text>
+          </View>
+          
+          <View style={[styles.legendContainer, { marginBottom: 12 }]}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: COLORS.primary }]} />
+              <Text style={styles.legendText}>Production</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: COLORS.warning }]} />
+              <Text style={styles.legendText}>Sales</Text>
+            </View>
+          </View>
+
           <LineChart />
         </View>
 
-        <Text style={styles.sectionTitle}>Machine-wise Report</Text>
+        <Text style={styles.mainTitle}>Machine-wise Report</Text>
+        
+        {/* --- MACHINE CARDS --- */}
         {stats.machineStats.map((ms, idx) => {
-          const isExpanded = expandedMachine === ms.machine.id;
-          const partDetails = (ms as any).partDetails || [
-            { id: '1', name: 'Main Part (Part 1)', stock: ms.stock }
-          ];
-
           return (
             <View key={ms.machine.id} style={styles.machineCard}>
               <View style={styles.machineHeader}>
-                <View style={[styles.machineIcon, { backgroundColor: COLORS.machineColors[idx] + "33" }]}>
-                  <Ionicons name="hardware-chip" size={18} color={COLORS.machineColors[idx]} />
+                <View style={styles.machineNameRow}>
+                  <View style={[styles.machineIcon, { backgroundColor: COLORS.machineColors[idx] + "33" }]}>
+                    <Ionicons name="hardware-chip" size={18} color={COLORS.machineColors[idx]} />
+                  </View>
+                  <Text style={styles.machineName}>{ms.machine.name}</Text>
                 </View>
-                <Text style={styles.machineName}>{ms.machine.name}</Text>
                 
+                {/* Clickable Stock Badge */}
                 <TouchableOpacity 
-                  style={[styles.machineBadge, { backgroundColor: COLORS.machineColors[idx] + "22" }]}
-                  onPress={() => setExpandedMachine(isExpanded ? null : ms.machine.id)}
+                  style={styles.stockBadge} 
+                  onPress={() => openStockDetails(ms.machine, ms.stock)}
                 >
-                  <Text style={[styles.machineBadgeText, { color: COLORS.machineColors[idx] }]}>
-                    Part 1 : {ms.stock} {isExpanded ? '▲' : '▼'}
-                  </Text>
+                  <Text style={styles.stockBadgeText}>{ms.stock} in stock</Text>
+                  <Ionicons name="information-circle-outline" size={14} color={UI_COLORS.success} style={{marginLeft: 4}} />
                 </TouchableOpacity>
               </View>
 
-              {isExpanded && (
-                <View style={styles.partsAccordion}>
-                  <Text style={styles.partsTitle}>Part Details:</Text>
-                  {partDetails.map((part: any) => (
-                    <View key={part.id} style={styles.partRow}>
-                      <Text style={styles.partName}>{part.name}</Text>
-                      <Text style={styles.partStock}>{part.stock} items</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
               <View style={styles.machineStats}>
                 {[
+                  { label: "Main Part", value: "Part 1" }, // Dummy or dynamic
                   { label: "Production", value: ms.production },
                   { label: "QC", value: ms.qc },
                   { label: "Sales", value: ms.sales },
-                ].map((stat) => (
-                  <View key={stat.label} style={styles.machineStat}>
+                ].map((stat, i) => (
+                  <View key={i} style={styles.machineStat}>
                     <Text style={styles.machineStatValue}>{stat.value}</Text>
                     <Text style={styles.machineStatLabel}>{stat.label}</Text>
                   </View>
@@ -282,6 +312,43 @@ export default function DashboardScreen() {
         <View style={{ height: Platform.OS === "web" ? 34 : 100 }} />
       </ScrollView>
 
+      {/* --- STOCK BOTTOM SHEET MODAL --- */}
+      <Modal visible={stockModalVisible} transparent animationType="slide" onRequestClose={() => setStockModalVisible(false)}>
+        <Pressable style={styles.bsOverlay} onPress={() => setStockModalVisible(false)}>
+          <Pressable style={styles.bsContent} onPress={e => e.stopPropagation()}>
+            {/* Drag Handle */}
+            <View style={styles.bsDragHandle} />
+            
+            {/* Modal Header */}
+            <View style={styles.bsHeader}>
+              <View>
+                <Text style={styles.bsTitle}>{selectedMachineInfo?.name}</Text>
+                <Text style={styles.bsSubtitle}>Stock Breakdown</Text>
+              </View>
+              <TouchableOpacity onPress={() => setStockModalVisible(false)}>
+                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Part List */}
+            <ScrollView style={{maxHeight: 350}}>
+              {selectedMachineInfo?.parts.map((part: any, i: number) => (
+                <View key={part.id} style={[styles.bsPartRow, i > 0 && styles.bsPartBorder]}>
+                  <View style={styles.bsPartLeft}>
+                    <Ionicons name="cube-outline" size={20} color={COLORS.primary} />
+                    <Text style={styles.bsPartName}>{part.name}</Text>
+                  </View>
+                  <View style={styles.bsPartBadge}>
+                    <Text style={styles.bsPartBadgeText}>{part.stock} units</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* --- SETTINGS MODAL --- */}
       <Modal visible={showSettings} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -329,31 +396,53 @@ const styles = StyleSheet.create({
   summaryIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   summaryValue: { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text },
   summaryLabel: { fontSize: 9, fontFamily: "Inter_400Regular", color: COLORS.textSecondary },
+  
   chartCard: { backgroundColor: COLORS.surface, borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: COLORS.cardBorder },
-  chartHeader: { marginBottom: 12, gap: 8 },
-  filterRow: { flexDirection: "row", gap: 6 },
+  chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  sectionSubtitle: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  legendContainer: { flexDirection: 'row', marginBottom: 16 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
+  legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  legendText: { fontSize: 11, color: COLORS.textSecondary },
+  
+  filterRow: { flexDirection: "row", gap: 6, marginTop: 4 },
   filterBtn: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: COLORS.surfaceLight, borderWidth: 1, borderColor: COLORS.cardBorder },
   filterBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   filterText: { fontSize: 11, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
   filterTextActive: { color: COLORS.white },
   emptyChart: { height: CHART_HEIGHT, alignItems: "center", justifyContent: "center" },
   emptyText: { fontSize: 13, color: COLORS.textMuted },
-  sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 12 },
+  
+  mainTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 12 },
   machineCard: { backgroundColor: COLORS.surface, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: COLORS.cardBorder },
-  machineHeader: { flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 10 },
-  machineIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  machineName: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: COLORS.text, flex: 1 },
-  machineBadge: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, flexDirection: 'row', alignItems: 'center' },
-  machineBadgeText: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  partsAccordion: { backgroundColor: COLORS.surfaceLight, padding: 10, borderRadius: 8, marginBottom: 12 },
-  partsTitle: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 6 },
-  partRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder },
-  partName: { fontSize: 12, color: COLORS.textSecondary },
-  partStock: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  machineHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  machineNameRow: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  machineIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", marginRight: 10 },
+  machineName: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  
+  stockBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: UI_COLORS.successBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 },
+  stockBadgeText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: UI_COLORS.success },
+  
   machineStats: { flexDirection: "row", gap: 6 },
-  machineStat: { flex: 1, backgroundColor: COLORS.surfaceLight, borderRadius: 10, padding: 8, alignItems: "center" },
-  machineStatValue: { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text },
-  machineStatLabel: { fontSize: 9, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 2 },
+  machineStat: { flex: 1, backgroundColor: COLORS.surfaceLight, borderRadius: 10, padding: 10, alignItems: "center" },
+  machineStatValue: { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
+  machineStatLabel: { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 4 },
+  
+  // Stock Bottom Sheet Styles
+  bsOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  bsContent: { backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingBottom: 40, minHeight: '40%' },
+  bsDragHandle: { width: 40, height: 4, backgroundColor: COLORS.cardBorder, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 20 },
+  bsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  bsTitle: { fontSize: 22, fontFamily: "Inter_700Bold", color: COLORS.text },
+  bsSubtitle: { fontSize: 14, color: COLORS.textSecondary, marginTop: 4 },
+  bsPartRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16 },
+  bsPartBorder: { borderTopWidth: 1, borderTopColor: COLORS.cardBorder },
+  bsPartLeft: { flexDirection: 'row', alignItems: 'center' },
+  bsPartName: { fontSize: 16, color: COLORS.text, marginLeft: 12, fontFamily: "Inter_500Medium" },
+  bsPartBadge: { backgroundColor: UI_COLORS.successBg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  bsPartBadgeText: { fontSize: 14, fontFamily: "Inter_700Bold", color: UI_COLORS.success },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: '85%', backgroundColor: COLORS.surface, borderRadius: 16, padding: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
