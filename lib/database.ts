@@ -105,11 +105,11 @@ async function setItem<T>(key: string, data: T[]): Promise<void> {
 
 export const DEFAULT_MACHINES: Machine[] = [
   { id: '1', name: '48Way', category: '48Way' },
-    { id: '2', name: '4Way', category: '4Way' },
-      { id: '3', name: '3WayOBC', category: '3WayOBC' },
-        { id: '4', name: '38 WAY SHROUD', category: '38 WAY SHROUD' },
-          { id: '5', name: 'FORD SPACER ASSEMBLY', category: 'FORD SPACER ASSEMBLY' },
-          ];
+  { id: '2', name: '4Way', category: '4Way' },
+  { id: '3', name: '3WayOBC', category: '3WayOBC' },
+  { id: '4', name: '38 WAY SHROUD', category: '38 WAY SHROUD' },
+  { id: '5', name: 'FORD SPACER ASSEMBLY', category: 'FORD SPACER' },
+];
 
           export const MACHINE_PARTS: Record<string, string[]> = {
             '48Way': [
@@ -122,7 +122,8 @@ export const DEFAULT_MACHINES: Machine[] = [
                                       ],
                                         '4Way': [
                                             '12040756 (Blue Seal)',
-                                                '12110186 (Orange
+                                                '12110186 (Orange Seal)',
+                                                    '12162187 (Housing)'
                                                       ],
                                                         '3WayOBC': [
                                                             '35516812 (Housing)',
