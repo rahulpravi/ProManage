@@ -1,53 +1,267 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Dimensions, Modal, TextInput, Switch, Alert, Pressable } from "react-native";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Platform,
+  Dimensions,
+  Modal,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, { Rect, Line, Text as SvgText, G, Polyline } from "react-native-svg";
+import Svg, {
+  Rect,
+  Line,
+  Polyline,
+  Circle,
+  Text as SvgText,
+  G,
+} from "react-native-svg";
 import COLORS from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
-import { getDashboardStats, getProductionByDateRange } from "@/lib/database";
-import type { ProductionLog } from "@/lib/database";
+import {
+  getDashboardStats,
+  getProductionByDateRange,
+  getSaleLogs,
+  DEFAULT_MACHINES,
+  MACHINE_PARTS,
+} from "@/lib/database";
+import type { ProductionLog, SaleLog, StockItem } from "@/lib/database";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const CHART_WIDTH = SCREEN_WIDTH - 48;
-const CHART_HEIGHT = 160;
+const CHART_W = SCREEN_WIDTH - 48;
+const CHART_H = 190;
+const Y_LEFT = 32;
+const BAR_AREA_H = CHART_H - 36;
 
-// Local colors for new UI elements
-const UI_COLORS = {
-  success: '#10B981',
-  successBg: 'rgba(16, 185, 129, 0.15)',
-};
+function useCurrentTime() {
+  const [time, setTime] = useState(() =>
+    new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+  );
+  useEffect(() => {
+    const t = setInterval(() => {
+      setTime(
+        new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+      );
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+  return time;
+}
 
-type FilterOption = { label: string; weeks: number };
-const FILTERS: FilterOption[] = [
-  { label: "1 Week", weeks: 1 },
-  { label: "2 Weeks", weeks: 2 },
-  { label: "3 Weeks", weeks: 3 },
-  { label: "4 Weeks", weeks: 4 },
-];
+function YGridLines({ maxVal, colors }: { maxVal: number; colors: any }) {
+  const steps = [0.25, 0.5, 0.75, 1.0];
+  return (
+    <>
+      {steps.map((s) => {
+        const y = 10 + BAR_AREA_H * (1 - s);
+        const val = Math.round(maxVal * s);
+        return (
+          <G key={s}>
+            <Line
+              x1={Y_LEFT}
+              y1={y}
+              x2={CHART_W}
+              y2={y}
+              stroke={colors.cardBorder}
+              strokeWidth="0.5"
+              strokeDasharray="3,3"
+            />
+            <SvgText
+              x={Y_LEFT - 4}
+              y={y + 4}
+              textAnchor="end"
+              fill={colors.textMuted}
+              fontSize="8"
+              fontFamily="Inter_400Regular"
+            >
+              {val}
+            </SvgText>
+          </G>
+        );
+      })}
+    </>
+  );
+}
 
-function BarChart({ data, labels }: { data: number[]; labels: string[] }) {
-  const maxVal = Math.max(...data, 1);
-  const barWidth = (CHART_WIDTH - 40) / Math.max(data.length, 1) - 8;
-  const BAR_AREA_HEIGHT = CHART_HEIGHT - 30;
+function WeeklyGroupedChart({
+  weeks,
+  data,
+  colors,
+}: {
+  weeks: string[];
+  data: number[][];
+  colors: any;
+}) {
+  const MACHINE_COUNT = DEFAULT_MACHINES.length;
+  const GROUP_COUNT = weeks.length;
+  const GROUP_GAP = 10;
+  const BAR_GAP = 2;
+  const usableW = CHART_W - Y_LEFT;
+  const groupW = (usableW - (GROUP_COUNT - 1) * GROUP_GAP) / GROUP_COUNT;
+  const barW = (groupW - (MACHINE_COUNT - 1) * BAR_GAP) / MACHINE_COUNT;
+
+  const allValues = data.flat();
+  const maxVal = Math.max(...allValues, 1);
 
   return (
-    <Svg width={CHART_WIDTH} height={CHART_HEIGHT}>
-      <Line x1="30" y1="10" x2="30" y2={BAR_AREA_HEIGHT + 10} stroke={COLORS.cardBorder} strokeWidth="1" />
-      <Line x1="30" y1={BAR_AREA_HEIGHT + 10} x2={CHART_WIDTH} y2={BAR_AREA_HEIGHT + 10} stroke={COLORS.cardBorder} strokeWidth="1" />
-      {data.map((val, i) => {
-        const barH = (val / maxVal) * BAR_AREA_HEIGHT;
-        const x = 34 + i * (barWidth + 8);
-        const y = 10 + BAR_AREA_HEIGHT - barH;
+    <Svg width={CHART_W} height={CHART_H}>
+      <Line
+        x1={Y_LEFT}
+        y1="10"
+        x2={Y_LEFT}
+        y2={BAR_AREA_H + 10}
+        stroke={colors.cardBorder}
+        strokeWidth="1"
+      />
+      <Line
+        x1={Y_LEFT}
+        y1={BAR_AREA_H + 10}
+        x2={CHART_W}
+        y2={BAR_AREA_H + 10}
+        stroke={colors.cardBorder}
+        strokeWidth="1"
+      />
+      <YGridLines maxVal={maxVal} colors={colors} />
+      {weeks.map((weekLabel, wi) => {
+        const groupX = Y_LEFT + wi * (groupW + GROUP_GAP);
         return (
-          <G key={i}>
-            <Rect x={x} y={y} width={barWidth} height={Math.max(barH, 0)} fill={COLORS.primary} rx={4} />
-            <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 4} textAnchor="middle" fill={COLORS.textSecondary} fontSize="9" fontFamily="Inter_400Regular">
-              {labels[i] || ""}
+          <G key={weekLabel}>
+            {DEFAULT_MACHINES.map((m, mi) => {
+              const val = data[wi]?.[mi] ?? 0;
+              const barH = (val / maxVal) * BAR_AREA_H;
+              const x = groupX + mi * (barW + BAR_GAP);
+              const y = 10 + BAR_AREA_H - barH;
+              return (
+                <G key={mi}>
+                  <Rect
+                    x={x}
+                    y={y}
+                    width={barW}
+                    height={Math.max(barH, 0)}
+                    fill={colors.machineColors[mi]}
+                    rx="2"
+                  />
+                </G>
+              );
+            })}
+            <SvgText
+              x={groupX + groupW / 2}
+              y={CHART_H - 4}
+              textAnchor="middle"
+              fill={colors.textSecondary}
+              fontSize="9"
+              fontFamily="Inter_500Medium"
+            >
+              {weekLabel}
             </SvgText>
-            {val > 0 && (
-              <SvgText x={x + barWidth / 2} y={y - 4} textAnchor="middle" fill={COLORS.text} fontSize="10" fontFamily="Inter_600SemiBold">
-                {val}
+          </G>
+        );
+      })}
+    </Svg>
+  );
+}
+
+function MonthlyLineChart({
+  days,
+  production,
+  sales,
+  colors,
+}: {
+  days: number[];
+  production: number[];
+  sales: number[];
+  colors: any;
+}) {
+  const maxVal = Math.max(...production, ...sales, 1);
+  const usableW = CHART_W - Y_LEFT;
+  const dayCount = days.length;
+  const xStep = dayCount > 1 ? usableW / (dayCount - 1) : usableW;
+
+  const getPoints = (vals: number[]) =>
+    vals
+      .map((v, i) => {
+        const x = Y_LEFT + i * xStep;
+        const y = 10 + BAR_AREA_H - (v / maxVal) * BAR_AREA_H;
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+  const prodPoints = getPoints(production);
+  const salePoints = getPoints(sales);
+
+  const labelEvery = Math.ceil(dayCount / 6);
+
+  return (
+    <Svg width={CHART_W} height={CHART_H}>
+      <Line
+        x1={Y_LEFT}
+        y1="10"
+        x2={Y_LEFT}
+        y2={BAR_AREA_H + 10}
+        stroke={colors.cardBorder}
+        strokeWidth="1"
+      />
+      <Line
+        x1={Y_LEFT}
+        y1={BAR_AREA_H + 10}
+        x2={CHART_W}
+        y2={BAR_AREA_H + 10}
+        stroke={colors.cardBorder}
+        strokeWidth="1"
+      />
+      <YGridLines maxVal={maxVal} colors={colors} />
+
+      <Polyline
+        points={prodPoints}
+        fill="none"
+        stroke={colors.primaryLight}
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <Polyline
+        points={salePoints}
+        fill="none"
+        stroke={colors.warning}
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+
+      {days.map((day, i) => {
+        const x = Y_LEFT + i * xStep;
+        const py = 10 + BAR_AREA_H - (production[i] / maxVal) * BAR_AREA_H;
+        const sy = 10 + BAR_AREA_H - (sales[i] / maxVal) * BAR_AREA_H;
+        return (
+          <G key={day}>
+            {production[i] > 0 && (
+              <Circle cx={x} cy={py} r="3" fill={colors.primaryLight} />
+            )}
+            {sales[i] > 0 && (
+              <Circle cx={x} cy={sy} r="3" fill={colors.warning} />
+            )}
+            {i % labelEvery === 0 && (
+              <SvgText
+                x={x}
+                y={CHART_H - 4}
+                textAnchor="middle"
+                fill={colors.textMuted}
+                fontSize="8"
+                fontFamily="Inter_400Regular"
+              >
+                {day}
               </SvgText>
             )}
           </G>
@@ -57,252 +271,231 @@ function BarChart({ data, labels }: { data: number[]; labels: string[] }) {
   );
 }
 
-function LineChart() {
-  const BAR_AREA_HEIGHT = CHART_HEIGHT - 30;
-  const prodData = [10, 25, 15, 40, 30, 50, 45, 60, 55, 70];
-  const saleData = [5, 20, 10, 35, 25, 40, 35, 50, 45, 65];
-  
-  const maxVal = Math.max(...prodData, ...saleData, 1);
-  const stepX = (CHART_WIDTH - 40) / (prodData.length - 1);
-
-  const getPoints = (data: number[]) => data.map((val, i) => {
-    const x = 34 + (i * stepX);
-    const y = 10 + BAR_AREA_HEIGHT - ((val / maxVal) * BAR_AREA_HEIGHT);
-    return `${x},${y}`;
-  }).join(" ");
-
-  return (
-    <Svg width={CHART_WIDTH} height={CHART_HEIGHT}>
-      <Line x1="30" y1="10" x2="30" y2={BAR_AREA_HEIGHT + 10} stroke={COLORS.cardBorder} strokeWidth="1" />
-      <Line x1="30" y1={BAR_AREA_HEIGHT + 10} x2={CHART_WIDTH} y2={BAR_AREA_HEIGHT + 10} stroke={COLORS.cardBorder} strokeWidth="1" />
-      <Polyline points={getPoints(prodData)} fill="none" stroke={COLORS.primary} strokeWidth="3" />
-      <Polyline points={getPoints(saleData)} fill="none" stroke={COLORS.warning} strokeWidth="3" />
-    </Svg>
-  );
-}
-
-function useCurrentTime() {
-  const [time, setTime] = useState(() => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return time;
-}
-
 type DashStats = Awaited<ReturnType<typeof getDashboardStats>>;
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
-  const { isLoading, refreshAll } = useApp();
+  const colors = COLORS; 
+  const { refreshAll, isLoading } = useApp();
+
   const [stats, setStats] = useState<DashStats | null>(null);
-  const [filter, setFilter] = useState<FilterOption>(FILTERS[0]);
-  const [chartData, setChartData] = useState<number[]>([]);
-  const [chartLabels, setChartLabels] = useState<string[]>([]);
+  const [weeklyData, setWeeklyData] = useState<number[][]>([]);
+  const [weeklyLabels, setWeeklyLabels] = useState<string[]>([]);
+  const [monthlyDays, setMonthlyDays] = useState<number[]>([]);
+  const [monthlyProd, setMonthlyProd] = useState<number[]>([]);
+  const [monthlySales, setMonthlySales] = useState<number[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [stockModalMachine, setStockModalMachine] = useState<string | null>(null);
+
   const currentTime = useCurrentTime();
-  
-  // Settings & Modal States
-  const [showSettings, setShowSettings] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [password, setPassword] = useState("");
-  
-  // Stock Bottom Sheet States
-  const [stockModalVisible, setStockModalVisible] = useState(false);
-  const [selectedMachineInfo, setSelectedMachineInfo] = useState<any>(null);
 
-  const load = useCallback(async () => {
-    const s = await getDashboardStats();
-    setStats(s);
-    const logs = await getProductionByDateRange(filter.weeks);
-    buildChartData(logs, filter.weeks);
-  }, [filter]);
-
-  const handleRefresh = async () => {
-    await load();
-    if (refreshAll) refreshAll();
-  };
-
-  const handleClearData = () => {
-    if (password === "12345") {
-      Alert.alert("Success", "All data has been cleared!");
-      setShowSettings(false);
-      setPassword("");
-    } else {
-      Alert.alert("Error", "Incorrect Password");
-    }
-  };
-
-  const openStockDetails = (machineData: any, stockCount: number) => {
-    setSelectedMachineInfo({
-      name: machineData.name,
-      totalStock: stockCount,
-      parts: machineData.partDetails || [{ id: '1', name: 'Main Part (Part 1)', stock: stockCount }]
-    });
-    setStockModalVisible(true);
-  };
-
-  function buildChartData(logs: ProductionLog[], weeks: number) {
-    const buckets: { [k: string]: number } = {};
+  const buildWeeklyData = (logs: ProductionLog[]) => {
     const now = new Date();
-    for (let i = weeks * 7 - 1; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const key = `${d.getDate()}/${d.getMonth() + 1}`;
-      buckets[key] = 0;
-    }
+    const labels = ["Week 1", "Week 2", "Week 3", "Week 4"];
+    const data: number[][] = labels.map(() =>
+      Array(DEFAULT_MACHINES.length).fill(0),
+    );
     logs.forEach((l) => {
       const d = new Date(l.completedAt);
-      const key = `${d.getDate()}/${d.getMonth() + 1}`;
-      if (key in buckets) buckets[key] += l.quantity;
+      const daysAgo = Math.floor((now.getTime() - d.getTime()) / (24 * 3600 * 1000));
+      const weekIdx = 3 - Math.min(Math.floor(daysAgo / 7), 3);
+      const machineIdx = DEFAULT_MACHINES.findIndex((m) => m.name === l.machineName);
+      if (machineIdx >= 0) data[weekIdx][machineIdx] += l.quantity;
     });
-    setChartLabels(Object.keys(buckets));
-    setChartData(Object.values(buckets));
-  }
+    setWeeklyLabels(labels);
+    setWeeklyData(data);
+  };
+
+  const buildMonthlyData = (prodLogs: ProductionLog[], saleLogs: SaleLog[]) => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const prod = Array(daysInMonth).fill(0);
+    const sale = Array(daysInMonth).fill(0);
+
+    prodLogs.forEach((l) => {
+      const d = new Date(l.completedAt);
+      if (d.getFullYear() === year && d.getMonth() === month) prod[d.getDate() - 1] += l.quantity;
+    });
+    saleLogs.forEach((l) => {
+      const d = new Date(l.soldAt);
+      if (d.getFullYear() === year && d.getMonth() === month) sale[d.getDate() - 1] += l.quantity;
+    });
+    setMonthlyDays(days);
+    setMonthlyProd(prod);
+    setMonthlySales(sale);
+  };
+
+  const load = useCallback(async () => {
+    const [s, saleLogs, prodLogs4Wk] = await Promise.all([
+      getDashboardStats(),
+      getSaleLogs(),
+      getProductionByDateRange(4),
+    ]);
+    setStats(s);
+    buildWeeklyData(prodLogs4Wk);
+    buildMonthlyData(s.prodLogs, saleLogs);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([refreshAll(), load()]);
+    setRefreshing(false);
+  };
+
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
-  const today = new Date().toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-  const currentMonth = new Date().toLocaleDateString([], { month: "long", year: "numeric" });
+  const today = new Date().toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+
+  const s = useMemo(() => makeStyles(colors), [colors]);
 
   if (isLoading || !stats) {
     return (
-      <View style={[styles.container, { paddingTop: topPad + 16 }]}>
-        <ActivityIndicator color={COLORS.primary} size="large" />
+      <View style={[s.container, { paddingTop: topPad + 16 }]}>
+        <ActivityIndicator color={colors.primary} size="large" />
       </View>
     );
   }
 
-  const totalProd = stats.machineStats.reduce((s, m) => s + m.production, 0);
-  const totalQC = stats.machineStats.reduce((s, m) => s + m.qc, 0);
-  const totalSales = stats.machineStats.reduce((s, m) => s + m.sales, 0);
-  const totalStock = stats.machineStats.reduce((s, m) => s + m.stock, 0);
+  const totalProd = stats.machineStats.reduce((a, m) => a + m.production, 0);
+  const totalQC = stats.machineStats.reduce((a, m) => a + m.qc, 0);
+  const totalSales = stats.machineStats.reduce((a, m) => a + m.sales, 0);
+  const totalStock = stats.machineStats.reduce((a, m) => a + m.stock, 0);
 
   return (
-    <View style={[styles.container, { paddingTop: topPad }]}>
-      <View style={styles.header}>
+    <View style={[s.container, { paddingTop: topPad }]}>
+      <View style={s.header}>
         <View>
-          <Text style={styles.company}>ProManage</Text>
-          <Text style={styles.subtitle}>{today}</Text>
+          <Text style={s.company}>ProManage</Text>
+          <Text style={s.subtitle}>{today}</Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.refreshBtn} onPress={handleRefresh}>
-            <Ionicons name="refresh" size={20} color={COLORS.primaryLight} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.refreshBtn} onPress={() => setShowSettings(true)}>
-            <Ionicons name="settings-outline" size={20} color={COLORS.primaryLight} />
+        <View style={s.headerRight}>
+          <View style={s.clockBadge}>
+            <Ionicons name="time-outline" size={12} color={colors.primaryLight} />
+            <Text style={s.clockText}>{currentTime}</Text>
+          </View>
+          <TouchableOpacity style={s.refreshBtn} onPress={handleRefresh} disabled={refreshing}>
+            {refreshing ? (
+              <ActivityIndicator color={colors.primaryLight} size="small" />
+            ) : (
+              <Ionicons name="refresh" size={20} color={colors.primaryLight} />
+            )}
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        
-        {/* --- SUMMARY CARDS --- */}
-        <View style={styles.summaryRow}>
+      <ScrollView showsVerticalScrollIndicator={false} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={s.scrollContent}>
+        <View style={s.summaryRow}>
           {[
-            { label: "Part 1 Stock", value: totalStock, icon: "cube", color: "#8B5CF6" },
-            { label: "Production", value: totalProd, icon: "settings", color: COLORS.primary },
-            { label: "QC Done", value: totalQC, icon: "shield-checkmark", color: COLORS.secondary },
-            { label: "Sales", value: totalSales, icon: "cart", color: COLORS.warning },
+            { label: "Stock", value: totalStock, icon: "cube", color: "#8B5CF6" },
+            { label: "Production", value: totalProd, icon: "settings", color: colors.primary },
+            { label: "QC Done", value: totalQC, icon: "shield-checkmark", color: colors.secondary },
+            { label: "Sales", value: totalSales, icon: "cart", color: colors.warning },
           ].map((item) => (
-            <View key={item.label} style={styles.summaryCard}>
-              <View style={[styles.summaryIcon, { backgroundColor: item.color + "22" }]}>
+            <View key={item.label} style={s.summaryCard}>
+              <View style={[s.summaryIcon, { backgroundColor: item.color + "22" }]}>
                 <Ionicons name={item.icon as any} size={18} color={item.color} />
               </View>
-              <Text style={styles.summaryValue}>{item.value}</Text>
-              <Text style={styles.summaryLabel}>{item.label}</Text>
+              <Text style={s.summaryValue}>{item.value}</Text>
+              <Text style={s.summaryLabel}>{item.label}</Text>
             </View>
           ))}
         </View>
 
-        {/* --- WEEKLY PRODUCTION CHART --- */}
-        <View style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Weekly Production</Text>
-              <Text style={styles.sectionSubtitle}>Last 4 weeks • by machine</Text>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
-              {FILTERS.map((f) => (
-                <TouchableOpacity key={f.label} style={[styles.filterBtn, filter.label === f.label && styles.filterBtnActive]} onPress={() => setFilter(f)}>
-                  <Text style={[styles.filterText, filter.label === f.label && styles.filterTextActive]}>{f.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-          
-          {/* Machine Legends */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.legendContainer}>
-            {stats.machineStats.map((ms, idx) => (
-              <View key={ms.machine.id} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: COLORS.machineColors[idx] || COLORS.primary }]} />
-                <Text style={styles.legendText}>{ms.machine.name}</Text>
+        <View style={s.chartCard}>
+          <Text style={s.sectionTitle}>Weekly Production</Text>
+          <Text style={s.chartSubtitle}>Last 4 weeks · by machine</Text>
+          <View style={s.legendRow}>
+            {DEFAULT_MACHINES.map((m, i) => (
+              <View key={m.id} style={s.legendItem}>
+                <View style={[s.legendDot, { backgroundColor: colors.machineColors[i] }]} />
+                <Text style={s.legendText}>{m.name}</Text>
               </View>
             ))}
-          </ScrollView>
-
-          {chartData.length > 0 ? <BarChart data={chartData} labels={chartLabels} /> : (
-            <View style={styles.emptyChart}><Text style={styles.emptyText}>No data</Text></View>
+          </View>
+          {weeklyData.some((w) => w.some((v) => v > 0)) ? (
+            <WeeklyGroupedChart weeks={weeklyLabels} data={weeklyData} colors={colors} />
+          ) : (
+            <View style={s.emptyChart}>
+              <Ionicons name="bar-chart-outline" size={32} color={colors.textMuted} />
+              <Text style={s.emptyText}>No production data yet</Text>
+            </View>
           )}
         </View>
 
-        {/* --- MONTHLY OVERVIEW CHART --- */}
-        <View style={styles.chartCard}>
-          <View style={{marginBottom: 12}}>
-            <Text style={styles.sectionTitle}>Monthly Overview</Text>
-            <Text style={styles.sectionSubtitle}>{currentMonth} • Day by day</Text>
-          </View>
-          
-          <View style={[styles.legendContainer, { marginBottom: 12 }]}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: COLORS.primary }]} />
-              <Text style={styles.legendText}>Production</Text>
+        <View style={s.chartCard}>
+          <Text style={s.sectionTitle}>Monthly Overview</Text>
+          <Text style={s.chartSubtitle}>
+            {new Date().toLocaleString("default", { month: "long", year: "numeric" })} · Day by day
+          </Text>
+          <View style={s.legendRow}>
+            <View style={s.legendItem}>
+              <View style={[s.legendDot, { backgroundColor: colors.primaryLight }]} />
+              <Text style={s.legendText}>Production</Text>
             </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: COLORS.warning }]} />
-              <Text style={styles.legendText}>Sales</Text>
+            <View style={s.legendItem}>
+              <View style={[s.legendDot, { backgroundColor: colors.warning }]} />
+              <Text style={s.legendText}>Sales</Text>
             </View>
           </View>
-
-          <LineChart />
+          {monthlyProd.some((v) => v > 0) || monthlySales.some((v) => v > 0) ? (
+            <MonthlyLineChart days={monthlyDays} production={monthlyProd} sales={monthlySales} colors={colors} />
+          ) : (
+            <View style={s.emptyChart}>
+              <Ionicons name="trending-up-outline" size={32} color={colors.textMuted} />
+              <Text style={s.emptyText}>No data this month</Text>
+            </View>
+          )}
         </View>
 
-        <Text style={styles.mainTitle}>Machine-wise Report</Text>
-        
-        {/* --- MACHINE CARDS --- */}
+        <Text style={s.sectionTitle}>Machine-wise Report</Text>
         {stats.machineStats.map((ms, idx) => {
+          // Get stock of the first/main part for this machine
+          const machineParts = MACHINE_PARTS[ms.machine.name] ?? [];
+          const mainPartName = machineParts[0] ?? "Main Part";
+          const mainPartStock = stats?.stock.find(
+            (sItem) => sItem.machineCategory === ms.machine.name && sItem.partName === mainPartName
+          )?.quantity || 0;
+
           return (
-            <View key={ms.machine.id} style={styles.machineCard}>
-              <View style={styles.machineHeader}>
-                <View style={styles.machineNameRow}>
-                  <View style={[styles.machineIcon, { backgroundColor: COLORS.machineColors[idx] + "33" }]}>
-                    <Ionicons name="hardware-chip" size={18} color={COLORS.machineColors[idx]} />
-                  </View>
-                  <Text style={styles.machineName}>{ms.machine.name}</Text>
+            <View key={ms.machine.id} style={s.machineCard}>
+              <View style={s.machineHeader}>
+                <View style={[s.machineIcon, { backgroundColor: colors.machineColors[idx] + "33" }]}>
+                  <Ionicons name="hardware-chip" size={18} color={colors.machineColors[idx]} />
                 </View>
+                <Text style={s.machineName}>{ms.machine.name}</Text>
                 
-                {/* Clickable Stock Badge */}
-                <TouchableOpacity 
-                  style={styles.stockBadge} 
-                  onPress={() => openStockDetails(ms.machine, ms.stock)}
+                {/* Changed Badge Text and Icon */}
+                <TouchableOpacity
+                  style={[s.machineBadge, { backgroundColor: colors.machineColors[idx] + "22" }]}
+                  onPress={() => setStockModalMachine(ms.machine.name)}
                 >
-                  <Text style={styles.stockBadgeText}>{ms.stock} in stock</Text>
-                  <Ionicons name="information-circle-outline" size={14} color={UI_COLORS.success} style={{marginLeft: 4}} />
+                  <Text style={[s.machineBadgeText, { color: colors.machineColors[idx] }]}>
+                    Stock details ?
+                  </Text>
+                  <Ionicons name="chevron-down-outline" size={14} color={colors.machineColors[idx]} />
                 </TouchableOpacity>
               </View>
-
-              <View style={styles.machineStats}>
+              
+              <View style={s.machineStats}>
                 {[
-                  { label: "Main Part", value: "Part 1" }, // Dummy or dynamic
+                  { label: "Stock", value: mainPartStock },
                   { label: "Production", value: ms.production },
                   { label: "QC", value: ms.qc },
                   { label: "Sales", value: ms.sales },
-                ].map((stat, i) => (
-                  <View key={i} style={styles.machineStat}>
-                    <Text style={styles.machineStatValue}>{stat.value}</Text>
-                    <Text style={styles.machineStatLabel}>{stat.label}</Text>
+                ].map((stat) => (
+                  <View key={stat.label} style={s.machineStat}>
+                    <Text style={s.machineStatValue}>{stat.value}</Text>
+                    <Text style={s.machineStatLabel}>{stat.label}</Text>
                   </View>
                 ))}
               </View>
@@ -312,70 +505,66 @@ export default function DashboardScreen() {
         <View style={{ height: Platform.OS === "web" ? 34 : 100 }} />
       </ScrollView>
 
-      {/* --- STOCK BOTTOM SHEET MODAL --- */}
-      <Modal visible={stockModalVisible} transparent animationType="slide" onRequestClose={() => setStockModalVisible(false)}>
-        <Pressable style={styles.bsOverlay} onPress={() => setStockModalVisible(false)}>
-          <Pressable style={styles.bsContent} onPress={e => e.stopPropagation()}>
-            {/* Drag Handle */}
-            <View style={styles.bsDragHandle} />
-            
-            {/* Modal Header */}
-            <View style={styles.bsHeader}>
+      <Modal visible={!!stockModalMachine} animationType="slide" transparent>
+        <View style={s.modalOverlay}>
+          <View style={s.modalSheet}>
+            <View style={s.modalHandle} />
+            <View style={s.modalHeader}>
               <View>
-                <Text style={styles.bsTitle}>{selectedMachineInfo?.name}</Text>
-                <Text style={styles.bsSubtitle}>Stock Breakdown</Text>
+                <Text style={s.modalTitle}>{stockModalMachine}</Text>
+                <Text style={s.modalSubtitle}>Stock Breakdown</Text>
               </View>
-              <TouchableOpacity onPress={() => setStockModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              <TouchableOpacity onPress={() => setStockModalMachine(null)}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            {/* Part List */}
-            <ScrollView style={{maxHeight: 350}}>
-              {selectedMachineInfo?.parts.map((part: any, i: number) => (
-                <View key={part.id} style={[styles.bsPartRow, i > 0 && styles.bsPartBorder]}>
-                  <View style={styles.bsPartLeft}>
-                    <Ionicons name="cube-outline" size={20} color={COLORS.primary} />
-                    <Text style={styles.bsPartName}>{part.name}</Text>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 350 }}>
+              {(MACHINE_PARTS[stockModalMachine ?? ""] ?? []).map((partName) => {
+                const foundStock = stats?.stock.find(
+                  (sItem) => sItem.machineCategory === stockModalMachine && sItem.partName === partName
+                );
+                const qty = foundStock ? foundStock.quantity : 0;
+
+                return (
+                  <View key={partName} style={s.stockRow}>
+                    <View style={s.stockRowLeft}>
+                      <Ionicons name="cube" size={16} color={colors.primary} />
+                      <Text style={s.stockRowName}>{partName}</Text>
+                    </View>
+                    <View
+                      style={[
+                        s.stockQtyBadge,
+                        {
+                          backgroundColor:
+                            qty === 0
+                              ? colors.danger + "22"
+                              : qty <= 5
+                                ? colors.warning + "22"
+                                : colors.secondary + "22",
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.stockQtyText,
+                          {
+                            color:
+                              qty === 0
+                                ? colors.danger
+                                : qty <= 5
+                                  ? colors.warning
+                                  : colors.secondary,
+                          },
+                        ]}
+                      >
+                        {qty} units
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.bsPartBadge}>
-                    <Text style={styles.bsPartBadgeText}>{part.stock} units</Text>
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* --- SETTINGS MODAL --- */}
-      <Modal visible={showSettings} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Settings</Text>
-              <TouchableOpacity onPress={() => setShowSettings(false)}>
-                <Ionicons name="close" size={24} color={COLORS.text} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.settingRow}>
-              <Text style={styles.settingText}>Dark Mode</Text>
-              <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
-            </View>
-            <View style={styles.dangerZone}>
-              <Text style={styles.dangerTitle}>Clear All Data</Text>
-              <Text style={styles.dangerSub}>Enter password to clear database</Text>
-              <TextInput 
-                style={styles.input} 
-                placeholder="Enter password (12345)" 
-                secureTextEntry 
-                value={password}
-                onChangeText={setPassword}
-              />
-              <TouchableOpacity style={styles.clearBtn} onPress={handleClearData}>
-                <Text style={styles.clearBtnText}>Clear Data</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
@@ -383,76 +572,100 @@ export default function DashboardScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingBottom: 12, paddingTop: 8 },
-  company: { fontSize: 24, fontFamily: "Inter_700Bold", color: COLORS.text, letterSpacing: -0.5 },
-  subtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 2 },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
-  refreshBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.cardBorder },
-  scrollContent: { paddingHorizontal: 20 },
-  summaryRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
-  summaryCard: { flex: 1, backgroundColor: COLORS.surface, borderRadius: 14, padding: 10, alignItems: "center", gap: 4, borderWidth: 1, borderColor: COLORS.cardBorder },
-  summaryIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  summaryValue: { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text },
-  summaryLabel: { fontSize: 9, fontFamily: "Inter_400Regular", color: COLORS.textSecondary },
-  
-  chartCard: { backgroundColor: COLORS.surface, borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: COLORS.cardBorder },
-  chartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text },
-  sectionSubtitle: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  legendContainer: { flexDirection: 'row', marginBottom: 16 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
-  legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  legendText: { fontSize: 11, color: COLORS.textSecondary },
-  
-  filterRow: { flexDirection: "row", gap: 6, marginTop: 4 },
-  filterBtn: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: COLORS.surfaceLight, borderWidth: 1, borderColor: COLORS.cardBorder },
-  filterBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  filterText: { fontSize: 11, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
-  filterTextActive: { color: COLORS.white },
-  emptyChart: { height: CHART_HEIGHT, alignItems: "center", justifyContent: "center" },
-  emptyText: { fontSize: 13, color: COLORS.textMuted },
-  
-  mainTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 12 },
-  machineCard: { backgroundColor: COLORS.surface, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: COLORS.cardBorder },
-  machineHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  machineNameRow: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  machineIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", marginRight: 10 },
-  machineName: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text },
-  
-  stockBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: UI_COLORS.successBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 },
-  stockBadgeText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: UI_COLORS.success },
-  
-  machineStats: { flexDirection: "row", gap: 6 },
-  machineStat: { flex: 1, backgroundColor: COLORS.surfaceLight, borderRadius: 10, padding: 10, alignItems: "center" },
-  machineStatValue: { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
-  machineStatLabel: { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 4 },
-  
-  // Stock Bottom Sheet Styles
-  bsOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  bsContent: { backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingBottom: 40, minHeight: '40%' },
-  bsDragHandle: { width: 40, height: 4, backgroundColor: COLORS.cardBorder, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 20 },
-  bsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  bsTitle: { fontSize: 22, fontFamily: "Inter_700Bold", color: COLORS.text },
-  bsSubtitle: { fontSize: 14, color: COLORS.textSecondary, marginTop: 4 },
-  bsPartRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16 },
-  bsPartBorder: { borderTopWidth: 1, borderTopColor: COLORS.cardBorder },
-  bsPartLeft: { flexDirection: 'row', alignItems: 'center' },
-  bsPartName: { fontSize: 16, color: COLORS.text, marginLeft: 12, fontFamily: "Inter_500Medium" },
-  bsPartBadge: { backgroundColor: UI_COLORS.successBg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
-  bsPartBadgeText: { fontSize: 14, fontFamily: "Inter_700Bold", color: UI_COLORS.success },
-
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '85%', backgroundColor: COLORS.surface, borderRadius: 16, padding: 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text },
-  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  settingText: { fontSize: 15, color: COLORS.text },
-  dangerZone: { marginTop: 10, borderTopWidth: 1, borderTopColor: COLORS.cardBorder, paddingTop: 15 },
-  dangerTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: COLORS.warning, marginBottom: 5 },
-  dangerSub: { fontSize: 12, color: COLORS.textSecondary, marginBottom: 10 },
-  input: { backgroundColor: COLORS.surfaceLight, borderWidth: 1, borderColor: COLORS.cardBorder, borderRadius: 8, padding: 10, marginBottom: 10, color: COLORS.text },
-  clearBtn: { backgroundColor: COLORS.warning, padding: 12, borderRadius: 8, alignItems: 'center' },
-  clearBtnText: { color: COLORS.white, fontFamily: "Inter_600SemiBold", fontSize: 14 }
-});
+function makeStyles(colors: any) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingBottom: 12,
+      paddingTop: 8,
+    },
+    company: { fontSize: 24, fontFamily: "Inter_700Bold", color: colors.text, letterSpacing: -0.5 },
+    subtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 2 },
+    headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+    clockBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      backgroundColor: colors.surface,
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    clockText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: colors.primaryLight, fontVariant: ["tabular-nums"] as any },
+    refreshBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    scrollContent: { paddingHorizontal: 20 },
+    summaryRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+    summaryCard: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      padding: 10,
+      alignItems: "center",
+      gap: 3,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    summaryIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+    summaryValue: { fontSize: 18, fontFamily: "Inter_700Bold", color: colors.text },
+    summaryLabel: { fontSize: 8, fontFamily: "Inter_400Regular", color: colors.textSecondary },
+    chartCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    sectionTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.text },
+    chartSubtitle: { fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 2, marginBottom: 10 },
+    legendRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 12 },
+    legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+    legendDot: { width: 8, height: 8, borderRadius: 4 },
+    legendText: { fontSize: 10, fontFamily: "Inter_400Regular", color: colors.textSecondary },
+    emptyChart: { height: CHART_H, alignItems: "center", justifyContent: "center", gap: 8 },
+    emptyText: { fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textMuted },
+    machineCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 14,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    machineHeader: { flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 10 },
+    machineIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+    machineName: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.text, flex: 1 },
+    machineBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, flexDirection: "row", alignItems: "center", gap: 4 },
+    machineBadgeText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+    machineStats: { flexDirection: "row", gap: 6 },
+    machineStat: { flex: 1, backgroundColor: colors.surfaceLight, borderRadius: 10, padding: 8, alignItems: "center" },
+    machineStatValue: { fontSize: 14, fontFamily: "Inter_700Bold", color: colors.text, textAlign: "center" },
+    machineStatLabel: { fontSize: 8, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 2 },
+    modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end" },
+    modalSheet: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+    modalHandle: { width: 40, height: 4, backgroundColor: colors.cardBorder, borderRadius: 2, alignSelf: "center", marginBottom: 20 },
+    modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+    modalTitle: { fontSize: 20, fontFamily: "Inter_700Bold", color: colors.text },
+    modalSubtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 2 },
+    stockRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.cardBorder },
+    stockRowLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+    stockRowName: { fontSize: 14, fontFamily: "Inter_500Medium", color: colors.text },
+    stockQtyBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+    stockQtyText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  });
+}
