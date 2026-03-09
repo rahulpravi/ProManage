@@ -105,42 +105,41 @@ async function setItem<T>(key: string, data: T[]): Promise<void> {
 
 export const DEFAULT_MACHINES: Machine[] = [
   { id: '1', name: '48Way', category: '48Way' },
-    { id: '2', name: '4Way', category: '4Way' },
-      { id: '3', name: '3WayOBC', category: '3WayOBC' },
-        { id: '4', name: '38 WAY SHROUD', category: '38 WAY SHROUD' },
-          { id: '5', name: 'FORD SPACER ASSEMBLY', category: 'FORD SPACER ASSEMBLY' },
-          ];
+  { id: '2', name: '4Way', category: '4Way' },
+  { id: '3', name: '3WayOBC', category: '3WayOBC' },
+  { id: '4', name: '38 WAY SHROUD', category: '38 WAY SHROUD' },
+  { id: '5', name: 'FORD SPACER ASSEMBLY', category: 'FORD SPACER' },
+];
 
-          export const MACHINE_PARTS: Record<string, string[]> = {
-            '48Way': [
-                '33508166 (Housing)',
-                    '33503364 (White Seal)',
-                        '33508170 (Grey Cover)',
-                            '33514062 (Brown Cover)',
-                                '33507962 (Orange Seal)',
-                                    '35501888 (Lock Lever)'
-                                      ],
-                                        '4Way': [
-                                            '12040756 (Blue Seal)',
-                                                '12110186 (Orange Seal)',
-                                                    '12162187 (Housing)'
-                                                      ],
-                                                        '3WayOBC': [
-                                                            '35516812 (Housing)',
-                                                                '13885872 (SEAL CMPR BLU)'
-                                                                  ],
-                                                                    '38 WAY SHROUD': [
-                                                                        '33509741 (Bush)',
-                                                                            '33514472 (Shroud Left)',
-                                                                                '33509739 (Insert)',
-                                                                                    '33503323 (Gasket)'
-                                                                                      ],
-                                                                                        'FORD SPACER ASSEMBLY': [
-                                                                                            '33514978 (Spacer)',
-                                                                                                '33514982 (Black Housing)'
-                                                                                                  ]
-                                                                                                  };
-
+export const MACHINE_PARTS: Record<string, string[]> = {
+  '48Way': [
+    '33508166 (Housing)',
+    '33503364 (White Seal)',
+    '33508170 (Grey Cover)',
+    '33514062 (Brown Cover)',
+    '33507962 (Orange Seal)',
+    '35501888 (Lock Lever)'
+  ],
+  '4Way': [
+    '12162187 (Housing)',
+    '12040756 (Blue Seal)',
+    '12110186 (Orange Seal)'
+  ],
+  '3WayOBC': [
+    '35516812 (Housing)',
+    '13885872 (SEAL CMPR BLU)'
+  ],
+  '38 WAY SHROUD': [
+    '33514472 (Shroud Left)',
+    '33509741 (Bush)',
+    '33509739 (Insert)',
+    '33503323 (Gasket)'
+  ],
+  'FORD SPACER': [
+    '33514982 (Black Housing)',
+    '33514978 (Spacer)'
+  ]
+};
 
 export const DEFAULT_EMPLOYEES: Employee[] = [
   { id: "e1", name: "Rahul", code: "R" },
