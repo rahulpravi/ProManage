@@ -122,8 +122,7 @@ export const DEFAULT_MACHINES: Machine[] = [
                                       ],
                                         '4Way': [
                                             '12040756 (Blue Seal)',
-                                                '12110186 (Orange Seal)',
-                                                    '12162187 (Housing)'
+                                                '12110186 (Orange
                                                       ],
                                                         '3WayOBC': [
                                                             '35516812 (Housing)',
