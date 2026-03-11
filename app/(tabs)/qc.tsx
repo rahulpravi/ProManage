@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   Alert,
   Modal,
@@ -11,6 +10,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Platform,
+  SectionList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -155,32 +155,66 @@ export default function QCScreen() {
   const [selectedDirectSerials, setSelectedDirectSerials] = useState<string[]>([]);
   const [directSubmitting, setDirectSubmitting] = useState(false);
 
+  // New State for recording New Labels
+  const [newLabels, setNewLabels] = useState<Record<string, string>>({});
+
+  // Success Popup State
+  const [showSuccess, setShowSuccess] = useState(false);
+
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
   const pendingLogs = productionLogs.filter((p) => p.status === "qc_pending");
   const doneQCLogs = qcLogs.filter((q) => q.status === "passed");
 
+  const groupedPendingLogs = useMemo(() => {
+    const groups: Record<string, typeof pendingLogs> = {};
+    pendingLogs.forEach((log) => {
+      if (!groups[log.machineName]) groups[log.machineName] = [];
+      groups[log.machineName].push(log);
+    });
+    return Object.keys(groups).map((key) => ({ title: key, data: groups[key] }));
+  }, [pendingLogs]);
+
+  const groupedDoneLogs = useMemo(() => {
+    const groups: Record<string, typeof doneQCLogs> = {};
+    doneQCLogs.forEach((log) => {
+      if (!groups[log.machineName]) groups[log.machineName] = [];
+      groups[log.machineName].push(log);
+    });
+    return Object.keys(groups).map((key) => ({ title: key, data: groups[key] }));
+  }, [doneQCLogs]);
+
   const openQCForm = (log: ProductionLog) => {
     setSelectedLog(log);
     setSerialInputs(log.serialNumbers.map((sn) => sn));
     setQcEmployee(null);
+    setNewLabels({}); // Clear old labels
   };
 
   const handleSubmitQC = async () => {
     if (!qcEmployee || !selectedLog) return;
-    const filled = serialInputs.filter((s) => s.trim() !== "");
-    if (filled.length === 0) {
-      Alert.alert("Error", "Enter at least one serial number");
-      return;
-    }
+    
     setSubmitting(true);
     try {
-      await addQCLog(selectedLog, qcEmployee, serialInputs);
+      // Format serials as "OldSN ➔ NewLabel"
+      const finalSerials = serialInputs.map(sn => {
+        const newLbl = newLabels[sn]?.trim();
+        return newLbl ? `${sn} ➔ ${newLbl}` : sn;
+      });
+
+      await addQCLog(selectedLog, qcEmployee, finalSerials);
       await refreshQC();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setSelectedLog(null);
-      setQcEmployee(null);
-      setSerialInputs([]);
+      
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        setSelectedLog(null);
+        setQcEmployee(null);
+        setSerialInputs([]);
+        setNewLabels({});
+      }, 1500);
+
     } catch {
       Alert.alert("Error", "Failed to submit QC");
     } finally {
@@ -209,13 +243,26 @@ export default function QCScreen() {
     }
     setDirectSubmitting(true);
     try {
-      await addQCLogDirect(directEmployee, directProdLog, selectedDirectSerials);
+      // Format serials as "OldSN ➔ NewLabel"
+      const finalSerials = selectedDirectSerials.map(sn => {
+        const newLbl = newLabels[sn]?.trim();
+        return newLbl ? `${sn} ➔ ${newLbl}` : sn;
+      });
+
+      await addQCLogDirect(directEmployee, directProdLog, finalSerials);
       await refreshQC();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setShowDirectModal(false);
-      setDirectEmployee(null);
-      setDirectProdLog(null);
-      setSelectedDirectSerials([]);
+      
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        setShowDirectModal(false);
+        setDirectEmployee(null);
+        setDirectProdLog(null);
+        setSelectedDirectSerials([]);
+        setNewLabels({});
+      }, 1500);
+
     } catch {
       Alert.alert("Error", "Failed to add QC entry");
     } finally {
@@ -225,7 +272,7 @@ export default function QCScreen() {
 
   const handleExport = async () => {
     if (showDone) {
-      const headers = ["Product", "Machine", "Quantity", "Serial Numbers", "QC Date"];
+      const headers = ["Product", "Machine", "Quantity", "Serial Numbers & Labels", "QC Date"];
       const rows = doneQCLogs.map((q) => [
         q.productName, q.machineName, String(q.quantity),
         q.serialNumbers.join(", "), formatDate(q.checkedAt),
@@ -252,6 +299,18 @@ export default function QCScreen() {
           <TouchableOpacity style={styles.iconBtn} onPress={handleExport}>
             <Ionicons name="share-outline" size={20} color={COLORS.primaryLight} />
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.addBtn} 
+            onPress={() => {
+              setDirectEmployee(null);
+              setDirectProdLog(null);
+              setSelectedDirectSerials([]);
+              setNewLabels({});
+              setShowDirectModal(true);
+            }}
+          >
+            <Ionicons name="add" size={22} color={COLORS.white} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -267,8 +326,8 @@ export default function QCScreen() {
       </View>
 
       {!showDone ? (
-        <FlatList
-          data={pendingLogs}
+        <SectionList
+          sections={groupedPendingLogs}
           keyExtractor={(item) => item.id}
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
@@ -280,6 +339,12 @@ export default function QCScreen() {
               <Text style={styles.emptyText}>Production complete items appear here</Text>
             </View>
           }
+          renderSectionHeader={({ section: { title } }) => (
+            <View style={styles.sectionHeader}>
+              <Ionicons name="hardware-chip" size={16} color={COLORS.warning} />
+              <Text style={[styles.sectionTitle, { color: COLORS.warning }]}>{title}</Text>
+            </View>
+          )}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.pendingCard} onPress={() => openQCForm(item)}>
               <View style={styles.pendingLeft}>
@@ -287,7 +352,6 @@ export default function QCScreen() {
                   <Ionicons name="settings-outline" size={20} color={COLORS.warning} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.pendingMachine}>{item.machineName}</Text>
                   <Text style={styles.pendingMeta}>{item.employeeName} • {formatDate(item.completedAt)}</Text>
                   <View style={styles.serialPreview}>
                     {item.serialNumbers.slice(0, 3).map((sn, i) => (
@@ -311,29 +375,24 @@ export default function QCScreen() {
           )}
         />
       ) : (
-        <FlatList
-          data={doneQCLogs.slice().reverse()}
+        <SectionList
+          sections={groupedDoneLogs}
           keyExtractor={(item) => item.id}
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
-          ListHeaderComponent={
-            <TouchableOpacity style={styles.addPassedBtn} onPress={() => {
-              setDirectEmployee(null);
-              setDirectProdLog(null);
-              setSelectedDirectSerials([]);
-              setShowDirectModal(true);
-            }}>
-              <Ionicons name="add-circle" size={18} color={COLORS.secondary} />
-              <Text style={styles.addPassedText}>Add Passed Entry</Text>
-            </TouchableOpacity>
-          }
           ListEmptyComponent={
             <View style={styles.empty}>
               <Ionicons name="checkmark-circle-outline" size={48} color={COLORS.textMuted} />
               <Text style={styles.emptyTitle}>No QC passed items</Text>
             </View>
           }
+          renderSectionHeader={({ section: { title } }) => (
+            <View style={styles.sectionHeader}>
+              <Ionicons name="hardware-chip" size={16} color={COLORS.secondary} />
+              <Text style={[styles.sectionTitle, { color: COLORS.secondary }]}>{title}</Text>
+            </View>
+          )}
           renderItem={({ item }) => (
             <View style={styles.doneCard}>
               <View style={styles.doneHeader}>
@@ -341,7 +400,6 @@ export default function QCScreen() {
                   <Ionicons name="checkmark-circle" size={20} color={COLORS.secondary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.doneName}>{item.productName}</Text>
                   <Text style={styles.doneMeta}>{formatDate(item.checkedAt)} • Qty: {item.quantity}</Text>
                 </View>
               </View>
@@ -357,6 +415,7 @@ export default function QCScreen() {
         />
       )}
 
+      {/* QC Form from Pending List */}
       <Modal visible={!!selectedLog} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
@@ -376,35 +435,24 @@ export default function QCScreen() {
                   </Text>
                 </View>
                 <EmpDropdown employees={employees} selected={qcEmployee} onSelect={setQcEmployee} />
-                {qcEmployee && (
-                  <>
-                    <Text style={ddStyles.label}>Serial Numbers → will be formatted as SN-{qcEmployee.code}</Text>
-                    <View style={styles.snPreview}>
-                      {serialInputs.map((sn, i) => (
-                        <View key={i} style={styles.snPreviewTag}>
-                          <Text style={styles.snPreviewText}>{sn}-{qcEmployee.code}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  </>
-                )}
-                <ScrollView style={{ maxHeight: 180 }} showsVerticalScrollIndicator={false}>
+                
+                <Text style={ddStyles.label}>Add New Label / Box No. (Optional)</Text>
+                <ScrollView style={{ maxHeight: 220 }} showsVerticalScrollIndicator={false}>
                   {serialInputs.map((sn, idx) => (
                     <View key={idx} style={styles.serialRow}>
                       <View style={[styles.serialIndex, { backgroundColor: COLORS.warning + "22" }]}>
                         <Text style={[styles.serialIndexText, { color: COLORS.warning }]}>{idx + 1}</Text>
                       </View>
-                      <TextInput
-                        style={styles.serialInput}
-                        placeholder={`Serial #${idx + 1}`}
-                        placeholderTextColor={COLORS.textMuted}
-                        value={sn}
-                        onChangeText={(val) => {
-                          const updated = [...serialInputs];
-                          updated[idx] = val;
-                          setSerialInputs(updated);
-                        }}
-                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.oldSnText}>Orig SN: {sn}</Text>
+                        <TextInput
+                          style={styles.serialInput}
+                          placeholder="Enter New Label"
+                          placeholderTextColor={COLORS.textMuted}
+                          value={newLabels[sn] || ""}
+                          onChangeText={(val) => setNewLabels(prev => ({...prev, [sn]: val}))}
+                        />
+                      </View>
                     </View>
                   ))}
                 </ScrollView>
@@ -419,6 +467,7 @@ export default function QCScreen() {
         </View>
       </Modal>
 
+      {/* Direct Add Modal */}
       <Modal visible={showDirectModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end" }} keyboardShouldPersistTaps="handled">
@@ -434,14 +483,14 @@ export default function QCScreen() {
               <EmpDropdown
                 employees={employees}
                 selected={directEmployee}
-                onSelect={(e) => { setDirectEmployee(e); setSelectedDirectSerials([]); }}
+                onSelect={(e) => { setDirectEmployee(e); setSelectedDirectSerials([]); setNewLabels({}); }}
                 accentColor={COLORS.secondary}
               />
 
               <ProdLogDropdown
                 logs={pendingLogs}
                 selected={directProdLog}
-                onSelect={(p) => { setDirectProdLog(p); setSelectedDirectSerials([]); }}
+                onSelect={(p) => { setDirectProdLog(p); setSelectedDirectSerials([]); setNewLabels({}); }}
               />
 
               {directProdLog && (
@@ -453,21 +502,32 @@ export default function QCScreen() {
                     {directProdLog.serialNumbers.map((sn) => {
                       const checked = selectedDirectSerials.includes(sn);
                       return (
-                        <TouchableOpacity
-                          key={sn}
-                          style={[styles.serialCheckItem, checked && styles.serialCheckItemActive]}
-                          onPress={() => toggleDirectSerial(sn)}
-                        >
-                          <Ionicons
-                            name={checked ? "checkbox" : "square-outline"}
-                            size={18}
-                            color={checked ? COLORS.secondary : COLORS.textMuted}
-                          />
-                          <Text style={[styles.serialCheckText, checked && { color: COLORS.secondary }]}>
-                            {sn}
-                            {directEmployee ? ` → ${sn}-${directEmployee.code}` : ""}
-                          </Text>
-                        </TouchableOpacity>
+                        <View key={sn} style={[styles.serialCheckItem, checked && styles.serialCheckItemActive, { flexDirection: 'column', alignItems: 'stretch' }]}>
+                          <TouchableOpacity
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                            onPress={() => toggleDirectSerial(sn)}
+                          >
+                            <Ionicons
+                              name={checked ? "checkbox" : "square-outline"}
+                              size={18}
+                              color={checked ? COLORS.secondary : COLORS.textMuted}
+                            />
+                            <Text style={[styles.serialCheckText, checked && { color: COLORS.secondary }]}>
+                              {sn}
+                            </Text>
+                          </TouchableOpacity>
+                          
+                          {/* Show New Label input only if checked */}
+                          {checked && (
+                            <TextInput
+                              style={[styles.serialInput, { marginTop: 10 }]}
+                              placeholder="Enter New Label (Optional)"
+                              placeholderTextColor={COLORS.textMuted}
+                              value={newLabels[sn] || ""}
+                              onChangeText={(val) => setNewLabels(prev => ({...prev, [sn]: val}))}
+                            />
+                          )}
+                        </View>
                       );
                     })}
                   </View>
@@ -490,6 +550,18 @@ export default function QCScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Success Popup Modal */}
+      <Modal visible={showSuccess} animationType="fade" transparent>
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <Ionicons name="checkmark-circle" size={72} color={COLORS.secondary} />
+            <Text style={styles.successTitle}>QC Done!</Text>
+            <Text style={styles.successText}>QC logged successfully</Text>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -502,10 +574,14 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 24, fontFamily: "Inter_700Bold", color: COLORS.text },
   subtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 2 },
-  headerActions: { flexDirection: "row", gap: 10 },
+  headerActions: { flexDirection: "row", gap: 10, alignItems: "center" },
   iconBtn: {
     width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.surface,
     alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.cardBorder,
+  },
+  addBtn: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: COLORS.secondary, alignItems: "center", justifyContent: "center",
   },
   tabBar: {
     flexDirection: "row", marginHorizontal: 20, marginBottom: 16,
@@ -520,15 +596,22 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
   listContent: {
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === "web" ? 34 : 100,
+    paddingBottom: Platform.OS === "web" ? 34 : 120,
   },
-  addPassedBtn: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: COLORS.secondary + "22", borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 12, marginBottom: 12,
-    borderWidth: 1, borderColor: COLORS.secondary + "44",
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 16,
+    marginBottom: 8,
+    paddingHorizontal: 4,
   },
-  addPassedText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.secondary },
+  sectionTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
   empty: { alignItems: "center", justifyContent: "center", paddingTop: 60, gap: 8 },
   emptyTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold", color: COLORS.text },
   emptyText: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textSecondary },
@@ -542,8 +625,7 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 12,
     backgroundColor: COLORS.warning + "22", alignItems: "center", justifyContent: "center",
   },
-  pendingMachine: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
-  pendingMeta: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 2 },
+  pendingMeta: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.text, marginTop: 2 },
   serialPreview: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 },
   serialTag: { backgroundColor: COLORS.surfaceLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   serialTagText: { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textSecondary },
@@ -563,11 +645,11 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 10,
     backgroundColor: COLORS.secondary + "22", alignItems: "center", justifyContent: "center",
   },
-  doneName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
-  doneMeta: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 2 },
+  doneMeta: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.text, marginTop: 2 },
   doneSerials: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   doneSerialTag: { backgroundColor: COLORS.secondary + "22", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   doneSerialText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.secondary },
+  
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end" },
   modalSheet: {
     backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
@@ -594,11 +676,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: COLORS.secondary + "44",
   },
   snPreviewText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.secondary },
-  serialRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
-  serialIndex: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  serialRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 16 },
+  serialIndex: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", marginTop: 4 },
   serialIndexText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  oldSnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 6, marginLeft: 2 },
   serialInput: {
-    flex: 1, backgroundColor: COLORS.surfaceLight, borderRadius: 12, padding: 12,
+    backgroundColor: COLORS.surfaceLight, borderRadius: 12, padding: 12,
     fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text,
     borderWidth: 1, borderColor: COLORS.cardBorder,
   },
@@ -607,11 +690,21 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: 4,
   },
   serialCheckItem: {
-    flexDirection: "row", alignItems: "center", gap: 10, padding: 12,
+    padding: 12,
     borderBottomWidth: 1, borderBottomColor: COLORS.cardBorder,
   },
   serialCheckItemActive: { backgroundColor: COLORS.secondary + "11" },
   serialCheckText: { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, flex: 1 },
-  submitBtn: { backgroundColor: COLORS.secondary, borderRadius: 14, padding: 16, alignItems: "center", marginTop: 12 },
+  submitBtn: { backgroundColor: COLORS.primary, borderRadius: 14, padding: 16, alignItems: "center", marginTop: 12 },
   submitText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.white },
+  
+  successOverlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center",
+  },
+  successCard: {
+    backgroundColor: COLORS.surface, padding: 30, borderRadius: 24, alignItems: "center",
+    gap: 12, borderWidth: 1, borderColor: COLORS.cardBorder, width: "70%",
+  },
+  successTitle: { fontSize: 20, fontFamily: "Inter_700Bold", color: COLORS.text, marginTop: 8 },
+  successText: { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, textAlign: "center" },
 });

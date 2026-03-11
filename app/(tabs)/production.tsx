@@ -10,6 +10,7 @@ import {
   Platform,
   FlatList,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -103,21 +104,21 @@ export default function ProductionScreen() {
   const { employees, machines, stock, materialRequests, productionLogs, refreshProduction, refreshStock } = useApp();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("request");
+  const [showFormModal, setShowFormModal] = useState(false); // Modal for adding new entry
 
+  // Form States
   const [reqEmployee, setReqEmployee] = useState<Employee | null>(null);
   const [reqMachine, setReqMachine] = useState<Machine | null>(null);
   const [reqPart, setReqPart] = useState<StockItem | null>(null);
-  const [reqQty, setReqQty] = useState("");
-  const [reqSerials, setReqSerials] = useState<string[]>([""]);
   const [reqSubmitting, setReqSubmitting] = useState(false);
 
   const [compEmployee, setCompEmployee] = useState<Employee | null>(null);
   const [compMachine, setCompMachine] = useState<Machine | null>(null);
-  const [compQty, setCompQty] = useState("");
-  const [serialNumbers, setSerialNumbers] = useState<string[]>([""]);
   const [compSubmitting, setCompSubmitting] = useState(false);
 
-  const [showHistory, setShowHistory] = useState(false);
+  // Auto-Update Serial & Quantity Logic
+  const [currentSerial, setCurrentSerial] = useState("");
+  const [addedSerials, setAddedSerials] = useState<string[]>([]);
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
@@ -125,16 +126,20 @@ export default function ProductionScreen() {
     ? stock.filter((s) => s.machineCategory === reqMachine.category && s.quantity > 0)
     : stock.filter((s) => s.quantity > 0);
 
-  const handleReqQtyChange = (val: string) => {
-    setReqQty(val);
-    const n = parseInt(val) || 0;
-    setReqSerials(Array.from({ length: Math.max(n, 1) }, (_, i) => reqSerials[i] || ""));
+  // Add a single serial number
+  const handleAddSerial = () => {
+    if (!currentSerial.trim()) return;
+    if (addedSerials.includes(currentSerial.trim())) {
+      Alert.alert("Error", "This Serial Number is already added.");
+      return;
+    }
+    setAddedSerials([...addedSerials, currentSerial.trim()]);
+    setCurrentSerial(""); // Clear input
   };
 
-  const handleCompQtyChange = (val: string) => {
-    setCompQty(val);
-    const n = parseInt(val) || 0;
-    setSerialNumbers(Array.from({ length: Math.max(n, 1) }, (_, i) => serialNumbers[i] || ""));
+  // Remove a serial number
+  const handleRemoveSerial = (serial: string) => {
+    setAddedSerials(addedSerials.filter((s) => s !== serial));
   };
 
   const handleMaterialRequest = async () => {
@@ -142,23 +147,18 @@ export default function ProductionScreen() {
       Alert.alert("Error", "Please select all fields");
       return;
     }
-    const qty = parseInt(reqQty);
-    if (!qty || qty <= 0) {
-      Alert.alert("Error", "Enter a valid quantity");
+    const qty = addedSerials.length;
+    if (qty <= 0) {
+      Alert.alert("Error", "Please add at least one Serial Number");
       return;
     }
     if (qty > reqPart.quantity) {
       Alert.alert("Insufficient Stock", `Only ${reqPart.quantity} units available`);
       return;
     }
-    const snFilled = reqSerials.slice(0, qty).filter((s) => s.trim() !== "");
-    if (snFilled.length < qty) {
-      Alert.alert("Error", "Please fill all serial numbers");
-      return;
-    }
     setReqSubmitting(true);
     try {
-      const result = await addMaterialRequest(reqEmployee, reqMachine, reqPart, qty, snFilled);
+      const result = await addMaterialRequest(reqEmployee, reqMachine, reqPart, qty, addedSerials);
       if (!result) {
         Alert.alert("Error", "Insufficient stock");
         return;
@@ -168,8 +168,8 @@ export default function ProductionScreen() {
       setReqEmployee(null);
       setReqMachine(null);
       setReqPart(null);
-      setReqQty("");
-      setReqSerials([""]);
+      setAddedSerials([]);
+      setShowFormModal(false); // Close Modal
       Alert.alert("Success", "Material request submitted");
     } catch {
       Alert.alert("Error", "Failed to submit request");
@@ -183,25 +183,20 @@ export default function ProductionScreen() {
       Alert.alert("Error", "Please select employee and machine");
       return;
     }
-    const qty = parseInt(compQty);
-    if (!qty || qty <= 0) {
-      Alert.alert("Error", "Enter a valid quantity");
-      return;
-    }
-    const snFilled = serialNumbers.slice(0, qty).filter((s) => s.trim() !== "");
-    if (snFilled.length < qty) {
-      Alert.alert("Error", "Please fill all serial numbers");
+    const qty = addedSerials.length;
+    if (qty <= 0) {
+      Alert.alert("Error", "Please add at least one Serial Number");
       return;
     }
     setCompSubmitting(true);
     try {
-      await addProductionLog(compEmployee, compMachine, qty, snFilled);
+      await addProductionLog(compEmployee, compMachine, qty, addedSerials);
       await refreshProduction();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCompEmployee(null);
       setCompMachine(null);
-      setCompQty("");
-      setSerialNumbers([""]);
+      setAddedSerials([]);
+      setShowFormModal(false); // Close Modal
       Alert.alert("Success", "Production log saved");
     } catch {
       Alert.alert("Error", "Failed to save production log");
@@ -228,29 +223,6 @@ export default function ProductionScreen() {
     }
   };
 
-  const SerialInputs = ({
-    count, serials, onChange, accentColor,
-  }: { count: number; serials: string[]; onChange: (idx: number, val: string) => void; accentColor: string }) => (
-    <>
-      <Text style={ddStyles.label}>Serial Numbers</Text>
-      {Array.from({ length: count }).map((_, idx) => (
-        <View key={idx} style={styles.serialRow}>
-          <View style={[styles.serialIndex, { backgroundColor: accentColor + "22" }]}>
-            <Text style={[styles.serialIndexText, { color: accentColor }]}>{idx + 1}</Text>
-          </View>
-          <TextInput
-            style={[styles.input, { flex: 1, marginBottom: 0 }]}
-            placeholder={`Serial #${idx + 1}`}
-            placeholderTextColor={COLORS.textMuted}
-            value={serials[idx] || ""}
-            onChangeText={(val) => onChange(idx, val)}
-          />
-        </View>
-      ))}
-      <View style={{ height: 16 }} />
-    </>
-  );
-
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       <View style={styles.header}>
@@ -262,8 +234,9 @@ export default function ProductionScreen() {
           <TouchableOpacity style={styles.iconBtn} onPress={handleExport}>
             <Ionicons name="share-outline" size={20} color={COLORS.primaryLight} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowHistory(!showHistory)}>
-            <Ionicons name={showHistory ? "create-outline" : "list"} size={20} color={COLORS.primaryLight} />
+          {/* Add Button -> Opens Modal */}
+          <TouchableOpacity style={styles.addBtn} onPress={() => { setAddedSerials([]); setShowFormModal(true); }}>
+            <Ionicons name="add" size={22} color={COLORS.white} />
           </TouchableOpacity>
         </View>
       </View>
@@ -273,7 +246,7 @@ export default function ProductionScreen() {
           <TouchableOpacity
             key={t}
             style={[styles.tabBtn, activeTab === t && styles.tabBtnActive]}
-            onPress={() => { setActiveTab(t); setShowHistory(false); }}
+            onPress={() => setActiveTab(t)}
           >
             <Ionicons
               name={t === "request" ? "cart-outline" : "checkmark-circle-outline"}
@@ -287,7 +260,8 @@ export default function ProductionScreen() {
         ))}
       </View>
 
-      {showHistory && activeTab === "request" ? (
+      {/* Main List (Always visible now) */}
+      {activeTab === "request" ? (
         <FlatList
           data={materialRequests.slice().reverse()}
           keyExtractor={(item) => item.id}
@@ -324,7 +298,7 @@ export default function ProductionScreen() {
             </View>
           )}
         />
-      ) : showHistory && activeTab === "complete" ? (
+      ) : (
         <FlatList
           data={productionLogs.slice().reverse()}
           keyExtractor={(item) => item.id}
@@ -359,110 +333,145 @@ export default function ProductionScreen() {
             </View>
           )}
         />
-      ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={styles.formContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {activeTab === "request" ? (
-            <>
-              <Dropdown
-                label="Employee"
-                items={employees}
-                selected={reqEmployee}
-                onSelect={setReqEmployee}
-                getLabel={(e) => e.name}
-              />
-              <Dropdown
-                label="Machine"
-                items={machines}
-                selected={reqMachine}
-                onSelect={(m) => { setReqMachine(m); setReqPart(null); }}
-                getLabel={(m) => m.name}
-              />
-              <Dropdown
-                label="Part"
-                items={filteredStock}
-                selected={reqPart}
-                onSelect={setReqPart}
-                getLabel={(p) => `${p.partName} (${p.quantity} available)`}
-              />
-              <Text style={ddStyles.label}>Quantity</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter quantity"
-                placeholderTextColor={COLORS.textMuted}
-                value={reqQty}
-                onChangeText={handleReqQtyChange}
-                keyboardType="number-pad"
-              />
-              {parseInt(reqQty) > 0 && (
-                <SerialInputs
-                  count={parseInt(reqQty)}
-                  serials={reqSerials}
-                  onChange={(idx, val) => {
-                    const updated = [...reqSerials];
-                    updated[idx] = val;
-                    setReqSerials(updated);
-                  }}
-                  accentColor={COLORS.primary}
-                />
-              )}
-              <TouchableOpacity style={styles.submitBtn} onPress={handleMaterialRequest} disabled={reqSubmitting}>
-                {reqSubmitting ? <ActivityIndicator color={COLORS.white} /> : (
-                  <Text style={styles.submitText}>Submit Request</Text>
-                )}
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <Dropdown
-                label="Employee"
-                items={employees}
-                selected={compEmployee}
-                onSelect={setCompEmployee}
-                getLabel={(e) => e.name}
-              />
-              <Dropdown
-                label="Machine"
-                items={machines}
-                selected={compMachine}
-                onSelect={setCompMachine}
-                getLabel={(m) => m.name}
-              />
-              <Text style={ddStyles.label}>Quantity</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter quantity"
-                placeholderTextColor={COLORS.textMuted}
-                value={compQty}
-                onChangeText={handleCompQtyChange}
-                keyboardType="number-pad"
-              />
-              {parseInt(compQty) > 0 && (
-                <SerialInputs
-                  count={parseInt(compQty)}
-                  serials={serialNumbers}
-                  onChange={(idx, val) => {
-                    const updated = [...serialNumbers];
-                    updated[idx] = val;
-                    setSerialNumbers(updated);
-                  }}
-                  accentColor={COLORS.secondary}
-                />
-              )}
-              <TouchableOpacity style={[styles.submitBtn, { backgroundColor: COLORS.secondary }]} onPress={handleProductionComplete} disabled={compSubmitting}>
-                {compSubmitting ? <ActivityIndicator color={COLORS.white} /> : (
-                  <Text style={styles.submitText}>Mark Production Complete</Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-          <View style={{ height: Platform.OS === "web" ? 34 : 100 }} />
-        </ScrollView>
       )}
+
+      {/* Form Modal */}
+      <Modal visible={showFormModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {activeTab === "request" ? "New Material Request" : "New Production Log"}
+              </Text>
+              <TouchableOpacity onPress={() => setShowFormModal(false)}>
+                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {activeTab === "request" ? (
+                <>
+                  <Dropdown
+                    label="Employee"
+                    items={employees}
+                    selected={reqEmployee}
+                    onSelect={setReqEmployee}
+                    getLabel={(e) => e.name}
+                  />
+                  <Dropdown
+                    label="Machine"
+                    items={machines}
+                    selected={reqMachine}
+                    onSelect={(m) => { setReqMachine(m); setReqPart(null); }}
+                    getLabel={(m) => m.name}
+                  />
+                  <Dropdown
+                    label="Part"
+                    items={filteredStock}
+                    selected={reqPart}
+                    onSelect={setReqPart}
+                    getLabel={(p) => `${p.partName} (${p.quantity} available)`}
+                  />
+
+                  {/* Serial Number & Auto Quantity Block */}
+                  <View style={styles.serialBlock}>
+                    <View style={styles.qtyHeader}>
+                      <Text style={ddStyles.label}>Total Quantity</Text>
+                      <Text style={styles.autoQty}>{addedSerials.length}</Text>
+                    </View>
+                    
+                    {addedSerials.length > 0 && (
+                      <View style={styles.serialsList}>
+                        {addedSerials.map((sn, idx) => (
+                          <TouchableOpacity key={idx} style={styles.serialTag} onPress={() => handleRemoveSerial(sn)}>
+                            <Text style={styles.serialTagText}>{sn}</Text>
+                            <Ionicons name="close-circle" size={14} color={COLORS.danger} />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
+                    <View style={styles.addSerialRow}>
+                      <TextInput
+                        style={styles.serialInput}
+                        placeholder="Enter Serial Number"
+                        placeholderTextColor={COLORS.textMuted}
+                        value={currentSerial}
+                        onChangeText={setCurrentSerial}
+                      />
+                      <TouchableOpacity style={styles.addSerialBtn} onPress={handleAddSerial}>
+                        <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity style={styles.submitBtn} onPress={handleMaterialRequest} disabled={reqSubmitting}>
+                    {reqSubmitting ? <ActivityIndicator color={COLORS.white} /> : (
+                      <Text style={styles.submitText}>Submit Request</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Dropdown
+                    label="Employee"
+                    items={employees}
+                    selected={compEmployee}
+                    onSelect={setCompEmployee}
+                    getLabel={(e) => e.name}
+                  />
+                  <Dropdown
+                    label="Machine"
+                    items={machines}
+                    selected={compMachine}
+                    onSelect={setCompMachine}
+                    getLabel={(m) => m.name}
+                  />
+
+                  {/* Serial Number & Auto Quantity Block */}
+                  <View style={styles.serialBlock}>
+                    <View style={styles.qtyHeader}>
+                      <Text style={ddStyles.label}>Total Quantity</Text>
+                      <Text style={[styles.autoQty, { color: COLORS.secondary }]}>{addedSerials.length}</Text>
+                    </View>
+                    
+                    {addedSerials.length > 0 && (
+                      <View style={styles.serialsList}>
+                        {addedSerials.map((sn, idx) => (
+                          <TouchableOpacity key={idx} style={styles.serialTag} onPress={() => handleRemoveSerial(sn)}>
+                            <Text style={styles.serialTagText}>{sn}</Text>
+                            <Ionicons name="close-circle" size={14} color={COLORS.danger} />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
+                    <View style={styles.addSerialRow}>
+                      <TextInput
+                        style={styles.serialInput}
+                        placeholder="Enter Serial Number"
+                        placeholderTextColor={COLORS.textMuted}
+                        value={currentSerial}
+                        onChangeText={setCurrentSerial}
+                      />
+                      <TouchableOpacity style={[styles.addSerialBtn, { backgroundColor: COLORS.secondary }]} onPress={handleAddSerial}>
+                        <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity style={[styles.submitBtn, { backgroundColor: COLORS.secondary }]} onPress={handleProductionComplete} disabled={compSubmitting}>
+                    {compSubmitting ? <ActivityIndicator color={COLORS.white} /> : (
+                      <Text style={styles.submitText}>Mark Production Complete</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -480,6 +489,10 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.surface,
     alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.cardBorder,
   },
+  addBtn: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center",
+  },
   tabBar: {
     flexDirection: "row", marginHorizontal: 20, marginBottom: 16,
     backgroundColor: COLORS.surface, borderRadius: 12, padding: 4,
@@ -492,25 +505,57 @@ const styles = StyleSheet.create({
   tabBtnActive: { backgroundColor: COLORS.primary + "22" },
   tabText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
   tabTextActive: { color: COLORS.primaryLight, fontFamily: "Inter_600SemiBold" },
-  formContent: { paddingHorizontal: 20, paddingTop: 4 },
-  input: {
+  
+  // Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end" },
+  modalSheet: {
+    backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, paddingBottom: 40, maxHeight: "90%",
+  },
+  modalHandle: {
+    width: 40, height: 4, backgroundColor: COLORS.cardBorder,
+    borderRadius: 2, alignSelf: "center", marginBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: "row", justifyContent: "space-between",
+    alignItems: "center", marginBottom: 20,
+  },
+  modalTitle: { fontSize: 20, fontFamily: "Inter_700Bold", color: COLORS.text },
+  
+  // Serial Logic Styles
+  serialBlock: {
     backgroundColor: COLORS.surfaceLight, borderRadius: 12, padding: 14,
-    fontSize: 15, fontFamily: "Inter_400Regular", color: COLORS.text,
-    marginBottom: 16, borderWidth: 1, borderColor: COLORS.cardBorder,
+    borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: 16,
   },
-  serialRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
-  serialIndex: {
-    width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center",
+  qtyHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  autoQty: { fontSize: 24, fontFamily: "Inter_700Bold", color: COLORS.primary },
+  serialsList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
+  serialTag: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: COLORS.danger + "22", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
   },
-  serialIndexText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  serialTagText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.danger },
+  addSerialRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  serialInput: {
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: 10, padding: 12,
+    fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text,
+    borderWidth: 1, borderColor: COLORS.cardBorder,
+  },
+  addSerialBtn: {
+    width: 44, height: 44, borderRadius: 10, backgroundColor: COLORS.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+
   submitBtn: {
     backgroundColor: COLORS.primary, borderRadius: 14,
     padding: 16, alignItems: "center", marginTop: 4,
   },
   submitText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.white },
+  
+  // List Styles
   listContent: {
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === "web" ? 34 : 100,
+    paddingBottom: Platform.OS === "web" ? 34 : 120, // Bottom navigation padding
   },
   historyCard: {
     backgroundColor: COLORS.surface, borderRadius: 14, padding: 14,

@@ -82,7 +82,7 @@ function ClassicTabLayout() {
         name="production"
         options={{
           title: "Production",
-          tabBarIcon: ({ color, size }) => <Ionicons name="settings" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="build" color={color} size={size} />,
         }}
       />
       <Tabs.Screen

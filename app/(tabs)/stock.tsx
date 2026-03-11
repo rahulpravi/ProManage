@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Modal,
   Alert,
   Platform,
-  FlatList,
+  SectionList,
   ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -110,6 +110,7 @@ export default function StockScreen() {
   const insets = useSafeAreaInsets();
   const { stock, isLoading, refreshStock } = useApp();
   const [showModal, setShowModal] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false); // Success popup state
   const [selectedMachine, setSelectedMachine] = useState("");
   const [selectedPart, setSelectedPart] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -126,6 +127,20 @@ export default function StockScreen() {
       s.partName.toLowerCase().includes(searchText.toLowerCase()) ||
       s.machineCategory.toLowerCase().includes(searchText.toLowerCase())
   );
+
+  const groupedData = useMemo(() => {
+    const groups: Record<string, typeof stock> = {};
+    filtered.forEach((item) => {
+      if (!groups[item.machineCategory]) {
+        groups[item.machineCategory] = [];
+      }
+      groups[item.machineCategory].push(item);
+    });
+    return Object.keys(groups).map((key) => ({
+      title: key,
+      data: groups[key],
+    }));
+  }, [filtered]);
 
   const resetForm = () => {
     setSelectedMachine("");
@@ -152,8 +167,17 @@ export default function StockScreen() {
       await addStock(selectedPart, selectedMachine, qty);
       await refreshStock();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      resetForm();
-      setShowModal(false);
+      
+      // Show success modal
+      setShowSuccess(true);
+      
+      // Auto close after 1.5 seconds
+      setTimeout(() => {
+        setShowSuccess(false);
+        setShowModal(false);
+        resetForm();
+      }, 1500);
+
     } catch {
       Alert.alert("Error", "Failed to add stock");
     } finally {
@@ -162,8 +186,21 @@ export default function StockScreen() {
   };
 
   const handleExport = async () => {
-    const headers = ["Part Name", "Machine Category", "Quantity", "Last Updated"];
-    const rows = stock.map((s) => [s.partName, s.machineCategory, String(s.quantity), formatDate(s.updatedAt)]);
+    const headers = ["Part Serial Number", "Part Name", "Machine Category", "Quantity", "Last Updated"];
+    
+    const rows = stock.map((s) => {
+      let serialNumber = s.partName;
+      let partName = "";
+      
+      const match = s.partName.match(/^(.+?)\s*\((.+)\)$/);
+      if (match) {
+        serialNumber = match[1].trim(); 
+        partName = match[2].trim();     
+      }
+
+      return [serialNumber, partName, s.machineCategory, String(s.quantity), formatDate(s.updatedAt)];
+    });
+    
     await exportAndShareCSV("stock_report.csv", headers, rows);
   };
 
@@ -203,29 +240,32 @@ export default function StockScreen() {
 
       {isLoading ? (
         <ActivityIndicator color={COLORS.primary} style={{ marginTop: 40 }} />
-      ) : filtered.length === 0 ? (
+      ) : groupedData.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="cube-outline" size={48} color={COLORS.textMuted} />
           <Text style={styles.emptyTitle}>No stock items</Text>
           <Text style={styles.emptyText}>Add parts using the + button</Text>
         </View>
       ) : (
-        <FlatList
-          data={filtered}
+        <SectionList
+          sections={groupedData}
           keyExtractor={(item) => item.id}
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={{ paddingHorizontal: 20 }}
+          ListFooterComponent={<View style={{ height: 130 }} />} 
+          renderSectionHeader={({ section: { title } }) => (
+            <View style={styles.sectionHeader}>
+              <Ionicons name="hardware-chip" size={16} color={COLORS.primaryLight} />
+              <Text style={styles.sectionTitle}>{title}</Text>
+            </View>
+          )}
           renderItem={({ item }) => (
             <View style={styles.stockCard}>
               <View style={styles.stockLeft}>
                 <View style={[styles.stockDot, { backgroundColor: getStockColor(item.quantity) }]} />
                 <View>
                   <Text style={styles.partName}>{item.partName}</Text>
-                  <View style={styles.machinePill}>
-                    <Ionicons name="hardware-chip-outline" size={11} color={COLORS.textSecondary} />
-                    <Text style={styles.machineText}>{item.machineCategory}</Text>
-                  </View>
                 </View>
               </View>
               <View style={styles.stockRight}>
@@ -237,6 +277,7 @@ export default function StockScreen() {
         />
       )}
 
+      {/* Main Add Stock Modal */}
       <Modal visible={showModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
@@ -284,6 +325,17 @@ export default function StockScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Success Popup Modal */}
+      <Modal visible={showSuccess} animationType="fade" transparent>
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <Ionicons name="checkmark-circle" size={72} color={COLORS.secondary} />
+            <Text style={styles.successTitle}>Success!</Text>
+            <Text style={styles.successText}>Stock added successfully</Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -314,12 +366,23 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center",
     backgroundColor: COLORS.surface, marginHorizontal: 20,
     borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
-    gap: 8, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: 16,
+    gap: 8, borderWidth: 1, borderColor: COLORS.cardBorder, marginBottom: 4,
   },
   searchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: Platform.OS === "web" ? 34 : 100,
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 16,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.primaryLight,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   stockCard: {
     backgroundColor: COLORS.surface, borderRadius: 14, padding: 14,
@@ -329,8 +392,6 @@ const styles = StyleSheet.create({
   stockLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
   stockDot: { width: 8, height: 8, borderRadius: 4 },
   partName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
-  machinePill: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  machineText: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textSecondary },
   stockRight: { alignItems: "flex-end" },
   qtyBig: { fontSize: 24, fontFamily: "Inter_700Bold" },
   qtyLabel: { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
@@ -365,4 +426,34 @@ const styles = StyleSheet.create({
     padding: 16, alignItems: "center", marginTop: 4,
   },
   submitText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.white },
+  
+  // Success Popup Styles
+  successOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successCard: {
+    backgroundColor: COLORS.surface,
+    padding: 30,
+    borderRadius: 24,
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    width: "70%",
+  },
+  successTitle: {
+    fontSize: 20,
+    fontFamily: "Inter_700Bold",
+    color: COLORS.text,
+    marginTop: 8,
+  },
+  successText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textSecondary,
+    textAlign: "center",
+  },
 });

@@ -111,41 +111,41 @@ export const DEFAULT_MACHINES: Machine[] = [
   { id: '5', name: 'FORD SPACER ASSEMBLY', category: 'FORD SPACER' },
 ];
 
-          export const MACHINE_PARTS: Record<string, string[]> = {
-            '48Way': [
-                '33508166 (Housing)',
-                    '33503364 (White Seal)',
-                        '33508170 (Grey Cover)',
-                            '33514062 (Brown Cover)',
-                                '33507962 (Orange Seal)',
-                                    '35501888 (Lock Lever)'
-                                      ],
-                                        '4Way': [
-                                            '12040756 (Blue Seal)',
-                                                '12110186 (Orange Seal)',
-                                                    '12162187 (Housing)'
-                                                      ],
-                                                        '3WayOBC': [
-                                                            '35516812 (Housing)',
-                                                                '13885872 (SEAL CMPR BLU)'
-                                                                  ],
-                                                                    '38 WAY SHROUD': [
-                                                                        '33509741 (Bush)',
-                                                                            '33514472 (Shroud Left)',
-                                                                                '33509739 (Insert)',
-                                                                                    '33503323 (Gasket)'
-                                                                                      ],
-                                                                                        'FORD SPACER ASSEMBLY': [
-                                                                                            '33514978 (Spacer)',
-                                                                                                '33514982 (Black Housing)'
-                                                                                                  ]
-                                                                                                  };
-
+export const MACHINE_PARTS: Record<string, string[]> = {
+  '48Way': [
+    '33508166 (Housing)',
+    '33503364 (White Seal)',
+    '33508170 (Grey Cover)',
+    '33514062 (Brown Cover)',
+    '33507962 (Orange Seal)',
+    '35501888 (Lock Lever)'
+  ],
+  '4Way': [
+    '12040756 (Blue Seal)',
+    '12110186 (Orange Seal)',
+    '12162187 (Housing)'
+  ],
+  '3WayOBC': [
+    '35516812 (Housing)',
+    '13885872 (SEAL CMPR BLU)'
+  ],
+  '38 WAY SHROUD': [
+    '33509741 (Bush)',
+    '33514472 (Shroud Left)',
+    '33509739 (Insert)',
+    '33503323 (Gasket)'
+  ],
+  'FORD SPACER ASSEMBLY': [
+    '33514978 (Spacer)',
+    '33514982 (Black Housing)'
+  ]
+};
 
 export const DEFAULT_EMPLOYEES: Employee[] = [
   { id: "e1", name: "Rahul", code: "R" },
   { id: "e2", name: "Jaya", code: "J" },
 ];
+
 export async function initializeDefaults(): Promise<void> {
   const machines = await getItem<Machine>(KEYS.MACHINES);
   if (machines.length === 0) {
@@ -440,4 +440,34 @@ export async function getDashboardStats() {
   });
 
   return { machineStats, prodLogs, qcLogs, saleLogs, stock, materialRequests };
+}
+
+// --- NEW FUNCTIONS FOR SETTINGS ---
+
+export async function removeEmployeeDirect(id: string): Promise<void> {
+  const employees = await getItem<Employee>(KEYS.EMPLOYEES);
+  await setItem(KEYS.EMPLOYEES, employees.filter(e => e.id !== id));
+}
+
+export async function addMachineDirect(name: string, category: string): Promise<Machine> {
+  const machines = await getItem<Machine>(KEYS.MACHINES);
+  const m: Machine = { id: genId(), name: name.trim(), category: category.trim() };
+  machines.push(m);
+  await setItem(KEYS.MACHINES, machines);
+  return m;
+}
+
+export async function removeMachineDirect(id: string): Promise<void> {
+  const machines = await getItem<Machine>(KEYS.MACHINES);
+  await setItem(KEYS.MACHINES, machines.filter(m => m.id !== id));
+}
+
+export async function clearSpecificData(type: "stock" | "production" | "qc" | "sales" | "all"): Promise<void> {
+  if (type === "stock" || type === "all") await setItem(KEYS.STOCK, []);
+  if (type === "production" || type === "all") {
+    await setItem(KEYS.PRODUCTION_LOGS, []);
+    await setItem(KEYS.MATERIAL_REQUESTS, []);
+  }
+  if (type === "qc" || type === "all") await setItem(KEYS.QC_LOGS, []);
+  if (type === "sales" || type === "all") await setItem(KEYS.SALE_LOGS, []);
 }

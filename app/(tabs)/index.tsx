@@ -608,7 +608,7 @@ function makeStyles(colors: any) {
       borderWidth: 1,
       borderColor: colors.cardBorder,
     },
-    scrollContent: { paddingHorizontal: 20 },
+    scrollContent: { paddingHorizontal: 20, paddingBottom: 120 },
     summaryRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
     summaryCard: {
       flex: 1,
